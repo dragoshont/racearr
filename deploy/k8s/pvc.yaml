@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: racearr-config
+  labels:
+    app: racearr
+spec:
+  # Single writer (Recreate strategy, 1 replica) — the SQLite settings + race history.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

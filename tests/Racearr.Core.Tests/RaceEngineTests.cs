@@ -55,8 +55,14 @@ public class RaceEngineTests
         public void IncRaceOutcome(string instance, string outcome) => RaceOutcomes.Add(outcome);
     }
 
-    private static RaceEngine NewEngine(RacearrOptions o, FakeArr arr, FakeQbit qbit, IEngineMetrics m)
-        => new(o, arr, qbit, m, new RaceEngineState(o.DryRun), NullLogger<RaceEngine>.Instance);
+    private sealed class CountingEventSink : IEventSink
+    {
+        public readonly List<RaceEvent> Events = [];
+        public void Record(RaceEvent evt) => Events.Add(evt);
+    }
+
+    private static RaceEngine NewEngine(RacearrOptions o, FakeArr arr, FakeQbit qbit, IEngineMetrics m, IEventSink? events = null)
+        => new(o, arr, qbit, m, events ?? NullEventSink.Instance, new RaceEngineState(o.DryRun), NullLogger<RaceEngine>.Instance);
 
     [Fact]
     public async Task Baseline_ProtectsPreExistingDownloadsAndWanted()
@@ -346,5 +352,104 @@ public class RaceEngineTests
         Assert.Equal(0, metrics.CandidatesGrabbed);     // but nothing is grabbed
         Assert.Equal([1100], arr.ForcedSearches);       // it falls back to a forced search
         Assert.Contains("speed_sla", metrics.IncidentTypes);
+    }
+
+    [Fact]
+    public async Task Engine_EmitsHistoryEventsToSink()
+    {
+        var o = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0, RaceMinSeeders = 3, MaxConcurrentPerItem = 4,
+        };
+        var arr = new FakeArr
+        {
+            Releases = { new Release { Protocol = "torrent", Seeders = 80, Resolution = 1080, InfoHash = "fast1", Guid = "g1" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 100_000, Progress = 0.1 } } };
+        var events = new CountingEventSink();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 9, ItemId = 400, DownloadId = "slow" }];
+        await engine.TickAsync(CancellationToken.None);
+
+        // The engine records its decisions to the history sink (a "race_started" plus the speed-SLA "incident").
+        Assert.Contains(events.Events, e => e.Kind == "race_started" && e.ItemId == 400);
+        Assert.Contains(events.Events, e => e.Kind == "incident" && e.Outcome == "speed_sla");
+        Assert.All(events.Events, e => Assert.False(string.IsNullOrWhiteSpace(e.Kind)));
+    }
+
+    [Fact]
+    public async Task Kill_RecordsRemovedEvent_ForRealCull()
+    {
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit
+        {
+            Torrents = { ["done1"] = new TorrentInfo { Progress = 1.0 }, ["loser1"] = new TorrentInfo { Progress = 0.5 } },
+        };
+        var events = new CountingEventSink();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 10, ItemId = 600, DownloadId = "done1" },
+            new QueueRecord { Id = 11, ItemId = 600, DownloadId = "loser1" },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Contains(events.Events, e => e.Kind == "kill" && e.Outcome == "removed");
+    }
+
+    [Fact]
+    public async Task Kill_RecordsDetachOnlyEvent_ForPrivateTorrent()
+    {
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false, ProtectPrivate = true, PrivateTrackerDomains = ["avistaz"] };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit
+        {
+            Torrents =
+            {
+                ["winner"] = new TorrentInfo { Progress = 1.0 },
+                ["priv"] = new TorrentInfo { Progress = 0.5, Tracker = "https://tracker.avistaz.to/announce" },
+            },
+        };
+        var events = new CountingEventSink();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 20, ItemId = 700, DownloadId = "winner" },
+            new QueueRecord { Id = 21, ItemId = 700, DownloadId = "priv" },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Contains(events.Events, e => e.Kind == "kill" && e.Outcome == "detach_only");
+    }
+
+    [Fact]
+    public async Task Kill_RecordsDryRunEvent_WithoutMutating()
+    {
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = true };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit
+        {
+            Torrents = { ["done1"] = new TorrentInfo { Progress = 1.0 }, ["loser1"] = new TorrentInfo { Progress = 0.5 } },
+        };
+        var events = new CountingEventSink();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 10, ItemId = 600, DownloadId = "done1" },
+            new QueueRecord { Id = 11, ItemId = 600, DownloadId = "loser1" },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Contains(events.Events, e => e.Kind == "kill" && e.Outcome == "dry_run");
+        Assert.Empty(arr.Deleted); // dry-run records intent but performs no mutation
     }
 }

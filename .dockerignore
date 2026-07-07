@@ -1,5 +1,12 @@
 .git
 .github
+**/bin
+**/obj
+**/*.db
+**/*.db-shm
+**/*.db-wal
+racearr-design.db
+tests
 __pycache__
 *.pyc
 .env
@@ -10,3 +17,4 @@ README.md
 LICENSE
 docker-compose.yml
 .DS_Store
+.vscode

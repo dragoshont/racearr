@@ -9,12 +9,16 @@ fixes that: it enforces two hard SLAs and, when a download is slow, **races
 several high-seeded alternates in parallel and keeps the fastest**, killing the
 rest.
 
-It's a single ~500-line, **dependency-free** Python service (stdlib only). It drives
-everything through the Radarr/Sonarr APIs and reads qBittorrent **read-only** for
-live speeds.
+It's a compact **.NET 10 / ASP.NET Core** service — rewritten from the original
+stdlib-only Python — that drives everything through the Radarr/Sonarr APIs and reads
+qBittorrent **read-only** for live speeds, persisting its tunable settings and race
+history in a local **SQLite** database.
 
-> **Status:** works with Radarr v3+ / Sonarr v3+ and qBittorrent v4.1+ (WebUI API v2).
-> Torrents only. Starts in `DRY_RUN` — it watches and logs what it *would* do until you arm it.
+> **Status:** the `rewrite-dotnet` branch is a phased .NET 10 rewrite (see
+> [ADR-0001](docs/adr/0001-dotnet-rewrite.md)); build and test with `dotnet`, and the container
+> needs a writable `/config` volume for its SQLite database. Works with Radarr v3+ / Sonarr v3+ and
+> qBittorrent v4.1+ (WebUI API v2). Torrents only. Starts in `DRY_RUN` — it watches and logs what it
+> *would* do until you arm it. Some sections below still describe the original Python service.
 
 ---
 
@@ -205,8 +209,8 @@ the fast path.
 
 ## Contributing
 
-Issues and PRs welcome. The whole thing is one file, [`racearr.py`](racearr.py), stdlib only —
-`python -m py_compile racearr.py` is the smoke test.
+Issues and PRs welcome. On the `rewrite-dotnet` branch it's a small .NET 10 solution
+([`Racearr.slnx`](Racearr.slnx)) — `dotnet build` + `dotnet test` is the smoke test.
 
 ## License
 

@@ -23,6 +23,8 @@ spec:
         fsGroup: 1000
       containers:
         - name: racearr
+          # .NET rewrite (this branch). Pin to a specific release/digest at cutover; the homelab
+          # production deployment pins the image tag via Flux and rolls back by reverting it (ADR-0001).
           image: ghcr.io/dragoshont/racearr:latest
           env:
             - { name: RADARR_URL, value: "http://radarr:7878" }
@@ -34,6 +36,8 @@ spec:
             - { name: RACE_TARGET_MBPS, value: "2.0" }
             - { name: MAX_CONCURRENT_PER_ITEM, value: "4" }
             - { name: PROTECT_PRIVATE, value: "true" }
+            # SQLite settings + race history live on the writable /config volume.
+            - { name: DB_PATH, value: "/config/racearr.db" }
             # - { name: PRIVATE_INDEXERS, value: "passthepopcorn,broadcasthenet" }
           envFrom:
             # RADARR_API_KEY, SONARR_API_KEY, and optionally QBIT_USERNAME/QBIT_PASSWORD
@@ -58,3 +62,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - { name: config, mountPath: /config }
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: racearr-config

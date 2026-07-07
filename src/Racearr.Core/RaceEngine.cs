@@ -22,6 +22,7 @@ public sealed class RaceEngine
     private readonly IArrClient _arr;
     private readonly IQbitClient _qbit;
     private readonly IEngineMetrics _metrics;
+    private readonly IEventSink _events;
     private readonly RaceEngineState _state;
     private readonly ILogger<RaceEngine> _log;
 
@@ -39,6 +40,7 @@ public sealed class RaceEngine
         IArrClient arr,
         IQbitClient qbit,
         IEngineMetrics metrics,
+        IEventSink events,
         RaceEngineState state,
         ILogger<RaceEngine> log)
     {
@@ -47,6 +49,7 @@ public sealed class RaceEngine
         _arr = arr;
         _qbit = qbit;
         _metrics = metrics;
+        _events = events;
         _state = state;
         _log = log;
     }
@@ -202,6 +205,7 @@ public sealed class RaceEngine
                     if (grabbed > 0)
                     {
                         _metrics.IncCandidatesGrabbed(inst.Name, grabbed);
+                        _events.Record(new RaceEvent { Kind = "race_started", Instance = inst.Name, ItemId = iid, Detail = $"grabbed {grabbed} alternate(s)" });
                         _raceStart[gkey] = now;
                         activeRaces++;
                     }
@@ -235,8 +239,10 @@ public sealed class RaceEngine
 
                     if (cand.Count <= 1 || timedOut)
                     {
+                        var outcome = RaceDecisions.RaceOutcome(haveWinner);
                         _metrics.ObserveRaceWinnerMbps(fastest / Mb);
-                        _metrics.IncRaceOutcome(inst.Name, RaceDecisions.RaceOutcome(haveWinner));
+                        _metrics.IncRaceOutcome(inst.Name, outcome);
+                        _events.Record(new RaceEvent { Kind = "race_outcome", Instance = inst.Name, ItemId = iid, Outcome = outcome, Mbps = Math.Round(fastest / Mb, 2) });
                         _raceStart.Remove(gkey);
                         _cooldown[gkey] = now.AddSeconds(_o.RaceCooldownSeconds);
                     }
@@ -257,8 +263,10 @@ public sealed class RaceEngine
                 if (_pickup.Remove(gkey, out var ps))
                 {
                     var lat = (now - ps.FirstSeen).TotalSeconds;
+                    var result = RaceDecisions.ClassifyPickup(lat, _o);
                     _metrics.ObservePickupLatency(lat);
-                    _metrics.IncPickup(inst.Name, RaceDecisions.ClassifyPickup(lat, _o));
+                    _metrics.IncPickup(inst.Name, result);
+                    _events.Record(new RaceEvent { Kind = "pickup", Instance = inst.Name, ItemId = w.Id, Outcome = result, Detail = $"picked up in {lat:0}s" });
                 }
                 continue;
             }
@@ -334,9 +342,12 @@ public sealed class RaceEngine
         var isPrivate = _o.ProtectPrivate && RaceDecisions.IsPrivateTorrent(torrent, _o);
         var removeFromClient = !isPrivate;
         var mode = isPrivate ? " (detach-only, private)" : "";
+        var title = Trunc(rec.Title, 60);
         if (_o.DryRun)
         {
-            _log.LogInformation("[dry-run] would KILL{Mode} {Title}", mode, Trunc(rec.Title, 60));
+            _log.LogInformation("[dry-run] would KILL{Mode} {Title}", mode, title);
+            // Record the would-kill so a DRY_RUN soak shows what the engine would have done.
+            _events.Record(new RaceEvent { Kind = "kill", Instance = inst.Name, Outcome = "dry_run", Detail = title });
             return;
         }
         try
@@ -347,11 +358,20 @@ public sealed class RaceEngine
                 _state.AddLosersKilled(1);
                 _metrics.IncLosersKilled(inst.Name);
             }
-            _log.LogInformation("KILL{Mode} {Title}", mode, Trunc(rec.Title, 60));
+            // Both a full removal and a private detach mutate the *arr queue — record either, honestly
+            // labelled, while losers_killed counts only real client removals.
+            _events.Record(new RaceEvent
+            {
+                Kind = "kill",
+                Instance = inst.Name,
+                Outcome = removeFromClient ? "removed" : "detach_only",
+                Detail = title,
+            });
+            _log.LogInformation("KILL{Mode} {Title}", mode, title);
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "kill failed ({Title})", Trunc(rec.Title, 60));
+            _log.LogWarning(ex, "kill failed ({Title})", title);
         }
     }
 
@@ -359,6 +379,7 @@ public sealed class RaceEngine
     {
         _state.AddIncident();
         _metrics.IncIncident(type);
+        _events.Record(new RaceEvent { Kind = "incident", Outcome = type, Detail = message });
         _log.LogWarning("INCIDENT {Type} {Message}", type, message);
         // INCIDENT_WEBHOOK notification is deferred to Phase 4 (ADR-0001) alongside the seerr webhook.
     }

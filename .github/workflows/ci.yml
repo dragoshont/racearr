@@ -1,9 +1,11 @@
 name: ci
 
 on:
+  # While the .NET rewrite lives on a branch, releases are intentionally NOT triggered by git tags:
+  # that prevents a stray v* tag from republishing the live Python image the cluster pins (:0.2.0).
+  # Re-enable semver tag releases at cutover (add `tags: ['v*']` here + a `type=semver` tag below).
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -12,23 +14,26 @@ permissions:
   packages: write
 
 jobs:
-  lint:
+  build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          python-version: '3.12'
-      - name: Compile
-        run: python -m py_compile racearr.py
-      - name: Lint (ruff, advisory)
-        run: pipx run ruff check racearr.py || true
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore
+      - name: Build
+        run: dotnet build --no-restore -c Release
+      - name: Test
+        run: dotnet test --no-build -c Release --verbosity normal
 
   docker:
-    needs: lint
+    needs: build-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -42,14 +47,17 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # Never auto-add :latest (the semver default); publish it only from the default branch.
+          flavor: latest=false
           tags: |
             type=ref,event=branch
-            type=semver,pattern={{version}}
+            type=sha
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Build (and push on main/tags)
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

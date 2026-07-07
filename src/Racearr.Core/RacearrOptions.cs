@@ -112,4 +112,27 @@ public sealed class RacearrOptions
             IncidentWebhookUrl = Str("INCIDENT_WEBHOOK_URL"),
         };
     }
+
+    /// <summary>The tunable SLA knobs as a string map, used to seed + persist the settings store.</summary>
+    public IReadOnlyDictionary<string, string> TunableSettings()
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        return new Dictionary<string, string>
+        {
+            ["POLL_SECONDS"] = PollSeconds.ToString(inv),
+            ["PICKUP_SLA_SECONDS"] = PickupSlaSeconds.ToString(inv),
+            ["SPEED_SLA_SECONDS"] = SpeedSlaSeconds.ToString(inv),
+            ["SPEED_SLA_MBPS"] = SpeedSlaMbps.ToString(inv),
+            ["RACE_TARGET_MBPS"] = RaceTargetMbps.ToString(inv),
+            ["RACE_CULL_AFTER_SECONDS"] = RaceCullAfterSeconds.ToString(inv),
+            ["RACE_MONITOR_SECONDS"] = RaceMonitorSeconds.ToString(inv),
+            ["RACE_COOLDOWN_SECONDS"] = RaceCooldownSeconds.ToString(inv),
+            ["MAX_CONCURRENT_PER_ITEM"] = MaxConcurrentPerItem.ToString(inv),
+            ["MAX_ACTIVE_RACES"] = MaxActiveRaces.ToString(inv),
+            ["RACE_MIN_SEEDERS"] = RaceMinSeeders.ToString(inv),
+            ["RACE_MAX_RESOLUTION"] = RaceMaxResolution.ToString(inv),
+            ["PROTECT_PRIVATE"] = ProtectPrivate ? "true" : "false",
+            ["DRY_RUN"] = DryRun ? "true" : "false",
+        };
+    }
 }

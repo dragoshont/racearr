@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - deployment.yaml
+  - pvc.yaml
   # Provide the Secret your own way, or copy secret.example.yaml -> secret.yaml
   # (git-ignored) and uncomment:
   # - secret.yaml
