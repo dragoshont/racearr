@@ -12,6 +12,7 @@ public sealed class RacearrDbContext(DbContextOptions<RacearrDbContext> options)
 {
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<RaceEvent> RaceEvents => Set<RaceEvent>();
+    public DbSet<Connection> Connections => Set<Connection>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -30,6 +31,14 @@ public sealed class RacearrDbContext(DbContextOptions<RacearrDbContext> options)
             e.Property(x => x.Instance).HasMaxLength(16);
             e.Property(x => x.Outcome).HasMaxLength(48);
             e.Property(x => x.Detail).HasMaxLength(512);
+        });
+        b.Entity<Connection>(e =>
+        {
+            e.ToTable("connections");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Kind).IsUnique();
+            e.Property(x => x.Kind).HasMaxLength(16);
+            e.Property(x => x.Url).HasMaxLength(256);
         });
     }
 }

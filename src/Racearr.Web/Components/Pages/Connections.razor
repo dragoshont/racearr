@@ -1,0 +1,158 @@
+@page "/connections"
+@inject IConnectionStore Store
+@inject IConnectionTester Tester
+@inject ISnackbar Snackbar
+
+<PageTitle>racearr — connections</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-1">Connections</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-4" Style="max-width:640px">
+    The Radarr, Sonarr and qBittorrent endpoints racearr talks to. Edits are saved to racearr's
+    database and <strong>apply on the next restart</strong> (like the SLA settings). Use <em>Test</em>
+    to check a connection before saving. Secrets are write-only — leave a key blank to keep the current one.
+</MudText>
+
+@foreach (var row in _rows)
+{
+    <MudCard Class="mb-4" Elevation="1">
+        <MudCardContent>
+            <MudStack Row AlignItems="AlignItems.Center" Class="mb-3">
+                <MudIcon Icon="@IconFor(row.Kind)" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">@NameFor(row.Kind)</MudText>
+                <MudSpacer />
+                @if (row.Kind != ConnectionKinds.Qbittorrent)
+                {
+                    <MudSwitch T="bool" @bind-Value="row.Enabled" Color="Color.Success">Enabled</MudSwitch>
+                }
+            </MudStack>
+
+            <MudTextField T="string" @bind-Value="row.Url" Label="URL" Variant="Variant.Outlined"
+                          Placeholder="http://host:port" Class="mb-3" />
+
+            @if (row.Kind == ConnectionKinds.Qbittorrent)
+            {
+                <MudTextField T="string" @bind-Value="row.Username" Label="Username (optional)"
+                              Variant="Variant.Outlined" Class="mb-3" />
+                <MudTextField T="string" @bind-Value="row.NewSecret" Label="Password" Variant="Variant.Outlined"
+                              InputType="InputType.Password" Placeholder="@SecretPlaceholder(row, "optional")" />
+            }
+            else
+            {
+                <MudTextField T="string" @bind-Value="row.NewSecret" Label="API key" Variant="Variant.Outlined"
+                              InputType="InputType.Password" Placeholder="@SecretPlaceholder(row, "required")" />
+            }
+        </MudCardContent>
+        <MudCardActions Class="px-4 pb-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Save(row))">Save</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="@(() => Test(row))" Disabled="@row.Testing"
+                       StartIcon="@Icons.Material.Filled.NetworkCheck">
+                @(row.Testing ? "Testing…" : "Test")
+            </MudButton>
+            <MudSpacer />
+            @if (row.TestMessage is not null)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Icon="@(row.TestOk ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)"
+                         Color="@(row.TestOk ? Color.Success : Color.Error)">@row.TestMessage</MudChip>
+            }
+        </MudCardActions>
+    </MudCard>
+}
+
+@code {
+    private readonly List<Row> _rows = new();
+
+    protected override void OnInitialized()
+    {
+        foreach (var kind in ConnectionKinds.All)
+        {
+            var c = Store.Get(kind);
+            _rows.Add(new Row
+            {
+                Kind = kind,
+                Url = c?.Url ?? "",
+                Username = c?.Username ?? "",
+                Enabled = c?.Enabled ?? true,
+                StoredApiKey = c?.ApiKey,
+                StoredPassword = c?.Password,
+                HasSecret = kind == ConnectionKinds.Qbittorrent
+                    ? !string.IsNullOrEmpty(c?.Password)
+                    : !string.IsNullOrEmpty(c?.ApiKey),
+            });
+        }
+    }
+
+    private void Save(Row r)
+    {
+        var conn = Materialize(r);
+        Store.Save(conn);
+        // Keep the loaded secrets in sync and clear the write-only field.
+        r.StoredApiKey = conn.ApiKey;
+        r.StoredPassword = conn.Password;
+        r.NewSecret = "";
+        r.HasSecret = r.Kind == ConnectionKinds.Qbittorrent
+            ? !string.IsNullOrEmpty(conn.Password)
+            : !string.IsNullOrEmpty(conn.ApiKey);
+        Snackbar.Add($"{NameFor(r.Kind)} saved — restart racearr to apply.", Severity.Success);
+    }
+
+    private async Task Test(Row r)
+    {
+        r.Testing = true;
+        r.TestMessage = null;
+        var result = await Tester.TestAsync(Materialize(r));
+        r.TestOk = result.Ok;
+        r.TestMessage = result.Message;
+        r.Testing = false;
+    }
+
+    // Build a Connection from the form, merging the write-only secret: a blank field keeps the stored value.
+    private static Connection Materialize(Row r)
+    {
+        var conn = new Connection { Kind = r.Kind, Url = (r.Url ?? "").Trim(), Enabled = r.Enabled };
+        if (r.Kind == ConnectionKinds.Qbittorrent)
+        {
+            conn.Username = string.IsNullOrWhiteSpace(r.Username) ? null : r.Username.Trim();
+            conn.Password = string.IsNullOrEmpty(r.NewSecret) ? r.StoredPassword : r.NewSecret;
+        }
+        else
+        {
+            conn.ApiKey = string.IsNullOrEmpty(r.NewSecret) ? r.StoredApiKey : r.NewSecret;
+        }
+        return conn;
+    }
+
+    private static string NameFor(string kind) => kind switch
+    {
+        ConnectionKinds.Radarr => "Radarr",
+        ConnectionKinds.Sonarr => "Sonarr",
+        ConnectionKinds.Qbittorrent => "qBittorrent",
+        _ => kind,
+    };
+
+    private static string IconFor(string kind) => kind switch
+    {
+        ConnectionKinds.Radarr => Icons.Material.Filled.Movie,
+        ConnectionKinds.Sonarr => Icons.Material.Filled.Tv,
+        _ => Icons.Material.Filled.CloudDownload,
+    };
+
+    private static string SecretPlaceholder(Row r, string whenEmpty)
+        => r.HasSecret ? "•••••• (leave blank to keep)" : whenEmpty;
+
+    private sealed class Row
+    {
+        public string Kind = "";
+        public string Url = "";
+        public string Username = "";
+        public bool Enabled = true;
+        public bool HasSecret;
+        public string NewSecret = "";
+        public bool Testing;
+        public bool TestOk;
+        public string? TestMessage;
+        // Held server-side only (Blazor Server) — never rendered, so secrets never reach the browser.
+        public string? StoredApiKey;
+        public string? StoredPassword;
+    }
+}

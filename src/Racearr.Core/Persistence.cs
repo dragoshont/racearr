@@ -68,8 +68,9 @@ public interface ISettingsStore
     void Set(string key, string value);
 }
 
-/// <summary>The setting keys that are persisted + runtime-tunable. Secrets, connection URLs, and the
-/// <c>DRY_RUN</c> kill switch stay environment-only (env-authoritative) and are never persisted.</summary>
+/// <summary>The setting keys that are persisted + runtime-tunable. Connections live in their own
+/// table (see <see cref="Connection"/>); the <c>DRY_RUN</c> kill switch + <c>WEBHOOK_TOKEN</c> stay
+/// environment-only (env-authoritative) and are never persisted here.</summary>
 public static class SettingKeys
 {
     public static readonly IReadOnlyList<string> Tunable =
@@ -79,4 +80,52 @@ public static class SettingKeys
         "MAX_CONCURRENT_PER_ITEM", "MAX_ACTIVE_RACES", "RACE_MIN_SEEDERS", "RACE_MAX_RESOLUTION",
         "PROTECT_PRIVATE",
     ];
+}
+
+/// <summary>
+/// A persisted connection to an upstream service (Radarr, Sonarr, qBittorrent). Unlike the SLA
+/// knobs these ARE allowed to hold secrets (API key / password): like the *arr apps, racearr owns
+/// its service credentials in its own config DB on the config volume, editable from the UI. The
+/// environment seeds them on first run; after that the database is the source of truth. Connection
+/// edits take effect on the next restart (the effective config is resolved once at startup).
+/// </summary>
+public sealed class Connection
+{
+    public int Id { get; set; }
+    /// <summary>One of <see cref="ConnectionKinds"/> — unique (one row per kind).</summary>
+    public required string Kind { get; set; }
+    public string Url { get; set; } = "";
+    /// <summary>Radarr/Sonarr API key (secret); null for qBittorrent.</summary>
+    public string? ApiKey { get; set; }
+    /// <summary>qBittorrent username (optional).</summary>
+    public string? Username { get; set; }
+    /// <summary>qBittorrent password (secret, optional).</summary>
+    public string? Password { get; set; }
+    /// <summary>When false the instance is ignored (no API key is surfaced to the engine).</summary>
+    public bool Enabled { get; set; } = true;
+}
+
+/// <summary>The three connection kinds racearr manages.</summary>
+public static class ConnectionKinds
+{
+    public const string Radarr = "radarr";
+    public const string Sonarr = "sonarr";
+    public const string Qbittorrent = "qbittorrent";
+    public static readonly IReadOnlyList<string> All = [Radarr, Sonarr, Qbittorrent];
+    public static bool IsValid(string kind) => All.Contains(kind);
+}
+
+/// <summary>
+/// Read/write access to the persisted service connections (secrets included). <see cref="SeedMissing"/>
+/// inserts env-derived defaults on first run; <see cref="Save"/> upserts by kind. Secrets are stored
+/// but must never be surfaced to the UI/API/logs — the read side redacts them.
+/// </summary>
+public interface IConnectionStore
+{
+    IReadOnlyList<Connection> GetAll();
+    Connection? Get(string kind);
+    /// <summary>Insert any seed whose kind is not already present. Returns the number inserted.</summary>
+    int SeedMissing(IReadOnlyList<Connection> seeds);
+    /// <summary>Upsert a connection by kind (URL / credentials / enabled).</summary>
+    void Save(Connection connection);
 }

@@ -83,3 +83,62 @@ public sealed class DbEventHistory(IDbContextFactory<RacearrDbContext> factory) 
         return q.OrderByDescending(e => e.TimestampUtc).ThenByDescending(e => e.Id).Take(limit).ToList();
     }
 }
+
+/// <summary>
+/// SQLite-backed connection store: seeds env-derived defaults on first run and upserts by kind.
+/// Stores secrets (API key / password); callers must redact them before showing them in the UI/API.
+/// </summary>
+public sealed class DbConnectionStore(IDbContextFactory<RacearrDbContext> factory) : IConnectionStore
+{
+    public IReadOnlyList<Connection> GetAll()
+    {
+        using var db = factory.CreateDbContext();
+        return db.Connections.OrderBy(c => c.Kind).ToList();
+    }
+
+    public Connection? Get(string kind)
+    {
+        using var db = factory.CreateDbContext();
+        return db.Connections.FirstOrDefault(c => c.Kind == kind);
+    }
+
+    public int SeedMissing(IReadOnlyList<Connection> seeds)
+    {
+        using var db = factory.CreateDbContext();
+        var present = db.Connections.Select(c => c.Kind).ToHashSet();
+        var added = 0;
+        foreach (var s in seeds)
+            if (ConnectionKinds.IsValid(s.Kind) && !present.Contains(s.Kind))
+            {
+                db.Connections.Add(new Connection
+                {
+                    Kind = s.Kind, Url = s.Url, ApiKey = s.ApiKey,
+                    Username = s.Username, Password = s.Password, Enabled = s.Enabled,
+                });
+                added++;
+            }
+        if (added > 0) db.SaveChanges();
+        return added;
+    }
+
+    public void Save(Connection connection)
+    {
+        if (!ConnectionKinds.IsValid(connection.Kind))
+            throw new ArgumentException($"'{connection.Kind}' is not a valid connection kind.", nameof(connection));
+        using var db = factory.CreateDbContext();
+        var row = db.Connections.FirstOrDefault(c => c.Kind == connection.Kind);
+        if (row is null)
+        {
+            db.Connections.Add(connection);
+        }
+        else
+        {
+            row.Url = connection.Url;
+            row.ApiKey = connection.ApiKey;
+            row.Username = connection.Username;
+            row.Password = connection.Password;
+            row.Enabled = connection.Enabled;
+        }
+        db.SaveChanges();
+    }
+}

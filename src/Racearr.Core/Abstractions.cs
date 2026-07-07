@@ -58,3 +58,12 @@ public sealed class NullEngineMetrics : IEngineMetrics
     public void ObserveRaceWinnerMbps(double mbps) { }
     public void IncRaceOutcome(string instance, string outcome) { }
 }
+
+/// <summary>Result of a connection reachability test: success + a short human-readable message.</summary>
+public sealed record ConnectionTestResult(bool Ok, string Message);
+
+/// <summary>Tests whether a configured service connection is reachable (drives the Connections UI "Test").</summary>
+public interface IConnectionTester
+{
+    Task<ConnectionTestResult> TestAsync(Connection connection, CancellationToken ct = default);
+}
