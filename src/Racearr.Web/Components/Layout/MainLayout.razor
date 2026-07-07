@@ -28,7 +28,7 @@
             <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.Bolt">ARMED</MudChip>
         }
     </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Variant="@DrawerVariant.Responsive" Elevation="1" ClipMode="DrawerClipMode.Always">
+    <MudDrawer @bind-Open="_drawerOpen" Variant="@DrawerVariant.Persistent" Elevation="1" ClipMode="DrawerClipMode.Always">
         <MudNavMenu>
             <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
             <MudNavLink Href="/settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune">Settings</MudNavLink>
