@@ -1,11 +1,12 @@
 name: ci
 
 on:
-  # While the .NET rewrite lives on a branch, releases are intentionally NOT triggered by git tags:
-  # that prevents a stray v* tag from republishing the live Python image the cluster pins (:0.2.0).
-  # Re-enable semver tag releases at cutover (add `tags: ['v*']` here + a `type=semver` tag below).
+  # The .NET rewrite is live in production (cutover complete). Semver tag releases are enabled:
+  # push a `v*` tag to publish an immutable `:X.Y.Z` image (the `type=semver` tag below). The old
+  # Python image is preserved as the immutable `:0.2.0` tag for rollback.
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -52,6 +53,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
+            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Build (and push on main/tags)
         uses: docker/build-push-action@v6
