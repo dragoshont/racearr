@@ -2,6 +2,7 @@
 @inject IConnectionStore Store
 @inject IConnectionTester Tester
 @inject ISnackbar Snackbar
+@inject RacearrOptions Options
 
 <PageTitle>racearr — connections</PageTitle>
 
@@ -59,11 +60,51 @@
     </MudCard>
 }
 
+<MudText Typo="Typo.h6" Class="mt-8 mb-1">Integrations</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-4" Style="max-width:640px">
+    racearr doesn't dial out to these, so there's nothing to edit — they're here so you can see the whole picture.
+</MudText>
+
+<MudCard Class="mb-4" Elevation="1">
+    <MudCardContent>
+        <MudStack Row AlignItems="AlignItems.Center" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.CallReceived" Color="Color.Secondary" />
+            <MudText Typo="Typo.h6">Seerr / Overseerr</MudText>
+            <MudSpacer />
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                     Color="@(_webhookTokenSet ? Color.Success : Color.Default)"
+                     Icon="@(_webhookTokenSet ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)">
+                @(_webhookTokenSet ? "token required" : "no token")
+            </MudChip>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Seerr sends new requests <strong>to</strong> racearr through an inbound webhook — racearr never connects out
+            to Seerr. Point Seerr's webhook agent at racearr's <code>/api/webhook/seerr</code> endpoint. It's informational:
+            racearr logs the request in its history; the race still begins when Radarr/Sonarr grab the download.
+        </MudText>
+    </MudCardContent>
+</MudCard>
+
+<MudCard Elevation="1">
+    <MudCardContent>
+        <MudStack Row AlignItems="AlignItems.Center" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.Tv" Color="Color.Secondary" />
+            <MudText Typo="Typo.h6">Plex</MudText>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            racearr doesn't connect to Plex. It works entirely through Radarr, Sonarr and qBittorrent — Plex simply plays
+            whatever the *arr apps import once a race finishes. There's nothing to configure here.
+        </MudText>
+    </MudCardContent>
+</MudCard>
+
 @code {
     private readonly List<Row> _rows = new();
+    private bool _webhookTokenSet;
 
     protected override void OnInitialized()
     {
+        _webhookTokenSet = !string.IsNullOrEmpty(Options.WebhookToken);
         foreach (var kind in ConnectionKinds.All)
         {
             var c = Store.Get(kind);

@@ -1,5 +1,8 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 @inject RaceEngineState State
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthProvider
+@inject PersistentComponentState AppState
 
 <MudThemeProvider Theme="@Theme" IsDarkMode="true" />
 <MudPopoverProvider />
@@ -13,12 +16,11 @@
         <MudIcon Icon="@Icons.Material.Filled.Speed" Class="mr-2" />
         <MudText Typo="Typo.h6">racearr</MudText>
         <MudSpacer />
-        <AuthorizeView>
-            <Authorized>
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
-                         Icon="@Icons.Material.Filled.AccountCircle" Class="mr-2">@context.User.Identity?.Name</MudChip>
-            </Authorized>
-        </AuthorizeView>
+        @if (!string.IsNullOrEmpty(_userName))
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                     Icon="@Icons.Material.Filled.AccountCircle" Class="mr-2">@_userName</MudChip>
+        }
         @if (State.DryRun)
         {
             <MudChip T="string" Color="Color.Warning" Size="Size.Small" Icon="@Icons.Material.Filled.Visibility">DRY-RUN</MudChip>
@@ -45,6 +47,35 @@
 
 @code {
     private bool _drawerOpen = true;
+    private string? _userName;
+    private PersistingComponentStateSubscription _persistSub;
+
+    // The ingress path-splits the Blazor /_blazor circuit out of Authentik forward-auth (so the
+    // realtime connection isn't killed), which makes the interactive circuit anonymous. Capture the
+    // authenticated username during server-side rendering (the gated request) and persist it across
+    // the SSR -> interactive boundary so the chip stays put instead of vanishing once the circuit
+    // connects. (AddAuthenticationStateSerialization only helps WebAssembly, not InteractiveServer.)
+    protected override async Task OnInitializedAsync()
+    {
+        _persistSub = AppState.RegisterOnPersisting(() =>
+        {
+            AppState.PersistAsJson(nameof(_userName), _userName);
+            return Task.CompletedTask;
+        });
+
+        if (AppState.TryTakeFromJson<string?>(nameof(_userName), out var restored))
+        {
+            _userName = restored; // interactive circuit: restore the name captured during SSR
+        }
+        else
+        {
+            var state = await AuthProvider.GetAuthenticationStateAsync(); // SSR: read the gated identity
+            var id = state.User.Identity;
+            _userName = id?.IsAuthenticated == true ? id.Name : null;
+        }
+    }
+
+    public void Dispose() => _persistSub.Dispose();
 
     private static readonly MudTheme Theme = new()
     {
