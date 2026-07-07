@@ -36,7 +36,15 @@
         <MudTd DataLabel="Detail">@context.Detail</MudTd>
     </RowTemplate>
     <NoRecordsContent>
-        <MudText Class="pa-4">No events yet — the engine records pickups, races, kills and incidents here.</MudText>
+        <MudStack AlignItems="AlignItems.Center" Spacing="1" Class="pa-8">
+            <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Large" Class="mud-text-secondary" />
+            <MudText Align="Align.Center">No race events yet.</MudText>
+            <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary" Style="max-width:440px">
+                This is racearr's own activity log — pickups, races, kills and incidents. It fills in as
+                racearr acts on downloads; it is not a list of everything in your library, and titles
+                grabbed before racearr took over won't appear here.
+            </MudText>
+        </MudStack>
     </NoRecordsContent>
 </MudTable>
 

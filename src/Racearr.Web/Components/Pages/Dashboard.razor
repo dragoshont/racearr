@@ -5,15 +5,7 @@
 
 <PageTitle>racearr — status</PageTitle>
 
-<MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h5">Status</MudText>
-    <MudSpacer />
-    <MudChip T="string" Size="Size.Small"
-             Icon="@(_snap.DryRun ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Bolt)"
-             Color="@(_snap.DryRun ? Color.Warning : Color.Success)">
-        @(_snap.DryRun ? "DRY-RUN — watching only" : "ARMED")
-    </MudChip>
-</MudStack>
+<MudText Typo="Typo.h5" Class="mb-4">Status</MudText>
 
 <MudPaper Class="pa-4 mb-6" Elevation="1">
     <MudText Typo="Typo.subtitle1">How a title flows</MudText>

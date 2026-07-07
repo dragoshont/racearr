@@ -8,9 +8,17 @@
 
 <MudLayout>
     <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Default" Edge="Edge.Start"
+                       aria-label="Toggle navigation" OnClick="@(() => _drawerOpen = !_drawerOpen)" />
         <MudIcon Icon="@Icons.Material.Filled.Speed" Class="mr-2" />
         <MudText Typo="Typo.h6">racearr</MudText>
         <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                         Icon="@Icons.Material.Filled.AccountCircle" Class="mr-2">@context.User.Identity?.Name</MudChip>
+            </Authorized>
+        </AuthorizeView>
         @if (State.DryRun)
         {
             <MudChip T="string" Color="Color.Warning" Size="Size.Small" Icon="@Icons.Material.Filled.Visibility">DRY-RUN</MudChip>
@@ -20,7 +28,7 @@
             <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.Bolt">ARMED</MudChip>
         }
     </MudAppBar>
-    <MudDrawer Open="true" Variant="@DrawerVariant.Persistent" Elevation="1" ClipMode="DrawerClipMode.Always">
+    <MudDrawer @bind-Open="_drawerOpen" Variant="@DrawerVariant.Responsive" Elevation="1" ClipMode="DrawerClipMode.Always">
         <MudNavMenu>
             <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
             <MudNavLink Href="/settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune">Settings</MudNavLink>
@@ -35,6 +43,8 @@
 </MudLayout>
 
 @code {
+    private bool _drawerOpen = true;
+
     private static readonly MudTheme Theme = new()
     {
         PaletteDark = new PaletteDark

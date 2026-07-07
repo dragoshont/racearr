@@ -71,6 +71,15 @@ builder.Services.AddSingleton<IEventHistory, DbEventHistory>();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 
+// Surface the Authentik-authenticated user in the UI (informational only — the ingress enforces
+// access). The scheme trusts the forward-auth headers; requests without them stay anonymous, so the
+// in-cluster /metrics, /healthz, /status and webhook callers are unaffected.
+builder.Services.AddAuthentication(AuthentikHeaderHandler.SchemeName)
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, AuthentikHeaderHandler>(
+        AuthentikHeaderHandler.SchemeName, null);
+builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState();
+
 // Bind the health/metrics server to HEALTH_PORT (9797 by default).
 builder.WebHost.UseUrls($"http://0.0.0.0:{options.HealthPort}");
 
@@ -83,6 +92,8 @@ metrics.PreInitialize(options);
 Metrics.DefaultRegistry.AddBeforeCollectCallback(() => metrics.RefreshGauges(state));
 
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapGet("/healthz", (RaceEngineState s, RacearrOptions o) =>
