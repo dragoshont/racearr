@@ -23,11 +23,22 @@ public sealed class RaceEngineState
 
     public bool DryRun { get; }
 
+    private int _managedDownloads;
+    private int _activeRaces;
+
     /// <summary>Count of downloads first seen after startup that the engine is actively managing.</summary>
-    public int ManagedDownloads { get; set; }
+    public int ManagedDownloads
+    {
+        get => Volatile.Read(ref _managedDownloads);
+        set => Volatile.Write(ref _managedDownloads, value);
+    }
 
     /// <summary>Count of races currently in progress.</summary>
-    public int ActiveRaces { get; set; }
+    public int ActiveRaces
+    {
+        get => Volatile.Read(ref _activeRaces);
+        set => Volatile.Write(ref _activeRaces, value);
+    }
 
     public long Loops => Interlocked.Read(ref _loops);
     public long Incidents => Interlocked.Read(ref _incidents);

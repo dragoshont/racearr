@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Racearr.Core\Racearr.Core.csproj" />
+    <ProjectReference Include="..\..\src\Racearr.Web\Racearr.Web.csproj" />
   </ItemGroup>
 
 </Project>

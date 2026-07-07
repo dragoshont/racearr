@@ -10,7 +10,7 @@ namespace Racearr.Web;
 /// Gauges are refreshed at scrape time via a before-collect callback; counters/histograms are
 /// emitted by the engine as events occur and pre-initialised to 0 for the known label sets.
 /// </summary>
-public sealed class RacearrMetrics
+public sealed class RacearrMetrics : IEngineMetrics
 {
     // Bucket boundaries copied verbatim from racearr.py.
     private static readonly double[] PickupBuckets = [15, 30, 60, 90, 120, 180, 300, 600];
@@ -101,4 +101,16 @@ public sealed class RacearrMetrics
         Loops.Set(state.Loops);
         LastLoopAge.Set(state.LastLoopAgeSeconds);
     }
+
+    // ---- IEngineMetrics: the event side-effects the engine emits ----
+    public void IncIncident(string type) => Incidents.WithLabels(type).Inc();
+    public void ObservePickupLatency(double seconds) => PickupLatencySeconds.Observe(seconds);
+    public void IncPickup(string instance, string result) => Pickups.WithLabels(instance, result).Inc();
+    public void IncRaceStarted(string instance) => RacesStarted.WithLabels(instance).Inc();
+    public void IncCandidatesGrabbed(string instance, double count) => CandidatesGrabbed.WithLabels(instance).Inc(count);
+    public void IncLosersKilled(string instance) => LosersKilled.WithLabels(instance).Inc();
+    public void IncReachedTarget(string instance) => ReachedTarget.WithLabels(instance).Inc();
+    public void ObserveTimeToTarget(double seconds) => TimeToTargetSeconds.Observe(seconds);
+    public void ObserveRaceWinnerMbps(double mbps) => RaceWinnerMbps.Observe(mbps);
+    public void IncRaceOutcome(string instance, string outcome) => RaceOutcomes.WithLabels(instance, outcome).Inc();
 }
