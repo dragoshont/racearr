@@ -1,0 +1,12 @@
+.git
+.github
+__pycache__
+*.pyc
+.env
+.env.*
+deploy
+docs
+README.md
+LICENSE
+docker-compose.yml
+.DS_Store

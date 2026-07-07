@@ -1,0 +1,24 @@
+# OPTIONAL — only needed on a zero-trust cluster with a default-deny-ingress policy.
+# racearr talks to Radarr, Sonarr and qBittorrent (and reaches indexers indirectly
+# through the *arr /release endpoint, so it does NOT need direct Prowlarr access).
+# This allows racearr -> those apps. Adjust the podSelector labels to match your apps.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-racearr-to-media
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [radarr, sonarr, qbittorrent]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: racearr
+      ports:
+        - { port: 7878, protocol: TCP }   # radarr
+        - { port: 8989, protocol: TCP }   # sonarr
+        - { port: 8080, protocol: TCP }   # qbittorrent

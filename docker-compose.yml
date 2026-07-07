@@ -1,0 +1,39 @@
+# Example racearr service. Add it to your existing *arr compose stack (or attach
+# racearr to that stack's network so it can reach radarr/sonarr/qbittorrent by name).
+#
+#   1. cp .env.example .env   and fill in your API keys
+#   2. docker compose up -d   (starts in DRY_RUN — observe the logs)
+#   3. set DRY_RUN=false to arm it
+services:
+  racearr:
+    build: .                       # or: image: ghcr.io/dragoshont/racearr:latest
+    container_name: racearr
+    restart: unless-stopped
+    environment:
+      # --- targets (at least one *arr API key is required) ---
+      RADARR_URL: "http://radarr:7878"
+      RADARR_API_KEY: "${RADARR_API_KEY}"
+      SONARR_URL: "http://sonarr:8989"
+      SONARR_API_KEY: "${SONARR_API_KEY}"
+      QBIT_URL: "http://qbittorrent:8080"
+      QBIT_USERNAME: "${QBIT_USERNAME:-}"
+      QBIT_PASSWORD: "${QBIT_PASSWORD:-}"
+      # --- behaviour (defaults shown) ---
+      DRY_RUN: "true"                     # observe-only; set "false" to arm
+      PICKUP_SLA_SECONDS: "180"           # grab within 3 min or raise an incident
+      SPEED_SLA_SECONDS: "120"            # must be moving by 2 min...
+      SPEED_SLA_MBPS: "1.0"               # ...at >= 1 MB/s, else race alternates
+      RACE_TARGET_MBPS: "2.0"             # a "good enough" winner
+      MAX_CONCURRENT_PER_ITEM: "4"        # up to 4 candidates raced at once
+      PROTECT_PRIVATE: "true"
+      # PRIVATE_INDEXERS: "passthepopcorn,broadcasthenet"
+      # INCIDENT_WEBHOOK_URL: "https://discord.com/api/webhooks/..."
+      TZ: "Etc/UTC"
+    ports:
+      - "9797:9797"                       # optional: GET /healthz and /status
+    # If your *arr stack is a separate compose project, join its network:
+    # networks: [ arr ]
+# networks:
+#   arr:
+#     external: true
+#     name: <your_arr_stack_network>

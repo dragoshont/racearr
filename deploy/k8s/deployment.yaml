@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: racearr
+  labels:
+    app: racearr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: racearr
+  template:
+    metadata:
+      labels:
+        app: racearr
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: racearr
+          image: ghcr.io/dragoshont/racearr:latest
+          env:
+            - { name: RADARR_URL, value: "http://radarr:7878" }
+            - { name: SONARR_URL, value: "http://sonarr:8989" }
+            - { name: QBIT_URL,   value: "http://qbittorrent:8080" }
+            # Start SAFE: observe-and-log only. Set to "false" to arm.
+            - { name: DRY_RUN, value: "true" }
+            - { name: SPEED_SLA_MBPS, value: "1.0" }
+            - { name: RACE_TARGET_MBPS, value: "2.0" }
+            - { name: MAX_CONCURRENT_PER_ITEM, value: "4" }
+            - { name: PROTECT_PRIVATE, value: "true" }
+            # - { name: PRIVATE_INDEXERS, value: "passthepopcorn,broadcasthenet" }
+          envFrom:
+            # RADARR_API_KEY, SONARR_API_KEY, and optionally QBIT_USERNAME/QBIT_PASSWORD
+            - secretRef:
+                name: racearr-secrets
+          ports:
+            - { name: health, containerPort: 9797 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 4
+          readinessProbe:
+            httpGet: { path: /healthz, port: health }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "20m", memory: "64Mi" }
+            limits:   { cpu: "300m", memory: "192Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
