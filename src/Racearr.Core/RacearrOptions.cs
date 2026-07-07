@@ -136,7 +136,7 @@ public sealed class RacearrOptions
             ["RACE_MIN_SEEDERS"] = RaceMinSeeders.ToString(inv),
             ["RACE_MAX_RESOLUTION"] = RaceMaxResolution.ToString(inv),
             ["PROTECT_PRIVATE"] = ProtectPrivate ? "true" : "false",
-            ["DRY_RUN"] = DryRun ? "true" : "false",
+            // DRY_RUN is deliberately absent: it is an env-only kill switch, never persisted.
         };
     }
 }

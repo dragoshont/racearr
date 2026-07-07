@@ -45,4 +45,13 @@ public class RacearrOptionsTests
         Assert.Equal(["avistaz", "passthepopcorn"], o.PrivateIndexers);  // lowercased + trimmed
         Assert.True(o.HasAnyInstance);
     }
+
+    [Fact]
+    public void DryRun_is_an_env_only_kill_switch_never_a_persisted_tunable()
+    {
+        // Regression guard (found live during cutover): a persisted DB DRY_RUN must never override
+        // the deployment env. Keeping DRY_RUN out of the tunables makes it env-authoritative.
+        Assert.DoesNotContain("DRY_RUN", SettingKeys.Tunable);
+        Assert.DoesNotContain("DRY_RUN", new RacearrOptions().TunableSettings().Keys);
+    }
 }

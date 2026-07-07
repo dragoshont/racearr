@@ -68,7 +68,8 @@ public interface ISettingsStore
     void Set(string key, string value);
 }
 
-/// <summary>The setting keys that are persisted + runtime-tunable. Secrets and URLs stay env-only.</summary>
+/// <summary>The setting keys that are persisted + runtime-tunable. Secrets, connection URLs, and the
+/// <c>DRY_RUN</c> kill switch stay environment-only (env-authoritative) and are never persisted.</summary>
 public static class SettingKeys
 {
     public static readonly IReadOnlyList<string> Tunable =
@@ -76,6 +77,6 @@ public static class SettingKeys
         "POLL_SECONDS", "PICKUP_SLA_SECONDS", "SPEED_SLA_SECONDS", "SPEED_SLA_MBPS",
         "RACE_TARGET_MBPS", "RACE_CULL_AFTER_SECONDS", "RACE_MONITOR_SECONDS", "RACE_COOLDOWN_SECONDS",
         "MAX_CONCURRENT_PER_ITEM", "MAX_ACTIVE_RACES", "RACE_MIN_SEEDERS", "RACE_MAX_RESOLUTION",
-        "PROTECT_PRIVATE", "DRY_RUN",
+        "PROTECT_PRIVATE",
     ];
 }

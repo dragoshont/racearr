@@ -38,7 +38,7 @@ public class PersistenceTests
     }
 
     private static readonly IReadOnlyDictionary<string, string> Defaults =
-        new Dictionary<string, string> { ["POLL_SECONDS"] = "5", ["DRY_RUN"] = "true" };
+        new Dictionary<string, string> { ["POLL_SECONDS"] = "5", ["PROTECT_PRIVATE"] = "true" };
 
     [Fact]
     public void SeedAndLoad_PopulatesDefaults_AndIsIdempotent()
@@ -48,7 +48,7 @@ public class PersistenceTests
 
         var first = store.SeedAndLoad(Defaults);
         Assert.Equal("5", first["POLL_SECONDS"]);
-        Assert.Equal("true", first["DRY_RUN"]);
+        Assert.Equal("true", first["PROTECT_PRIVATE"]);
 
         // Seeding again must not duplicate rows or change values.
         var second = store.SeedAndLoad(Defaults);

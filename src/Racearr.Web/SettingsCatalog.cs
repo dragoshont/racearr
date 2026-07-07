@@ -24,6 +24,5 @@ public static class SettingsCatalog
         new("RACE_MIN_SEEDERS", "Minimum seeders", "Only race alternate releases with at least this many seeders.", "seeders", "Racing", false),
         new("RACE_MAX_RESOLUTION", "Max resolution to race", "Don't grab racing alternates above this vertical resolution.", "pixels", "Racing", false),
         new("PROTECT_PRIVATE", "Protect private trackers", "Never delete private-tracker torrents (avoids hit-and-run bans) — detach only.", "", "Safety", true),
-        new("DRY_RUN", "Dry run (watch only)", "Observe and log what would happen, but never grab or remove anything.", "", "Safety", true),
     ];
 }
