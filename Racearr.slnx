@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Racearr.Core/Racearr.Core.csproj" />
+    <Project Path="src/Racearr.Web/Racearr.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Racearr.Core.Tests/Racearr.Core.Tests.csproj" />
+  </Folder>
+</Solution>

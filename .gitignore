@@ -8,3 +8,8 @@ __pycache__/
 .venv/
 venv/
 deploy/k8s/secret.yaml
+
+# .NET build output
+[Bb]in/
+[Oo]bj/
+*.user
