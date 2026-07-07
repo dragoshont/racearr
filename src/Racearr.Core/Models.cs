@@ -61,6 +61,8 @@ public sealed record Release
     public string InfoHash { get; init; } = "";
     public string Guid { get; init; } = "";
     public string Title { get; init; } = "";
+    /// <summary>Total release size in bytes reported by the *arr search; 0 when unknown.</summary>
+    public long Size { get; init; }
 }
 
 /// <summary>An active download record in an *arr queue.</summary>
@@ -75,6 +77,8 @@ public sealed record QueueRecord
     public long Size { get; init; }
     public long SizeLeft { get; init; }
     public string? TrackedDownloadState { get; init; }
+    /// <summary>Overall tracked-download health: <c>ok</c> / <c>warning</c> / <c>error</c> (null when unknown).</summary>
+    public string? TrackedDownloadStatus { get; init; }
 }
 
 /// <summary>A monitored-missing ("wanted") item, used for fresh-pickup detection.</summary>

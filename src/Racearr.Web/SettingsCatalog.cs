@@ -23,6 +23,8 @@ public static class SettingsCatalog
         new("MAX_ACTIVE_RACES", "Max races at once", "Cap on races running across everything at the same time.", "races", "Racing", false),
         new("RACE_MIN_SEEDERS", "Minimum seeders", "Only race alternate releases with at least this many seeders.", "seeders", "Racing", false),
         new("RACE_MAX_RESOLUTION", "Max resolution to race", "Don't grab racing alternates above this vertical resolution.", "pixels", "Racing", false),
+        new("RACE_MIN_SIZE_MB", "Minimum release size", "Downloads smaller than this are treated as fakes — a tiny torrent that races fast but carries no real media is blocklisted, never kept. Typical fake/sample torrents are under 10 MB; raise it only if your library holds very short or ultra-compressed legitimate media.", "MB", "Racing", false),
+        new("RACE_RUNT_RATIO", "Fake-vs-real size ratio", "Optional (0 = off): a racing download smaller than this fraction of the biggest alternate for the same title is treated as a fake. Off by default so fast low-quality releases aren't dropped.", "ratio 0–1", "Racing", false),
         new("PROTECT_PRIVATE", "Protect private trackers", "Never delete private-tracker torrents (avoids hit-and-run bans) — detach only.", "", "Safety", true),
     ];
 }

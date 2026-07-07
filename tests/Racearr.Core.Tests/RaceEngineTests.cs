@@ -18,13 +18,14 @@ public class RaceEngineTests
         public List<int> ForcedSearches = [];
         public List<string> Grabbed = [];
         public List<int> Deleted = [];
+        public List<(int Id, bool RemoveFromClient, bool Blocklist)> DeleteCalls = [];
 
         public Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<QueueRecord>>(Queue);
         public Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<WantedItem>>(Wanted);
         public Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult<IReadOnlyList<Release>>(Releases);
         public Task ForceSearchAsync(ArrInstance i, int id, CancellationToken ct) { ForcedSearches.Add(id); return Task.CompletedTask; }
         public Task<bool> GrabAsync(ArrInstance i, Release r, CancellationToken ct) { Grabbed.Add(r.InfoHash); return Task.FromResult(true); }
-        public Task DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct) { Deleted.Add(id); return Task.CompletedTask; }
+        public Task DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct) { Deleted.Add(id); DeleteCalls.Add((id, rc, bl)); return Task.CompletedTask; }
     }
 
     private sealed class FakeQbit : IQbitClient
@@ -451,5 +452,128 @@ public class RaceEngineTests
 
         Assert.Contains(events.Events, e => e.Kind == "kill" && e.Outcome == "dry_run");
         Assert.Empty(arr.Deleted); // dry-run records intent but performs no mutation
+    }
+
+    [Fact]
+    public async Task FakeGuard_FastRunt_IsBlocklisted_RealCandidateSurvives()
+    {
+        // A tiny fake torrent downloads fastest; without the guard it would "win" and the real
+        // release would be culled. The guard must blocklist the runt and keep the genuine release.
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var qbit = new FakeQbit
+        {
+            Torrents =
+            {
+                ["realdl"] = new TorrentInfo { Progress = 0.4, DlSpeed = 0.5 * 1024 * 1024 },
+                ["fakefast"] = new TorrentInfo { Progress = 0.95, DlSpeed = 12.0 * 1024 * 1024 },
+            },
+        };
+        var metrics = new CountingMetrics();
+        var events = new CountingEventSink();
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, metrics, events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 40, ItemId = 1200, DownloadId = "realdl", Size = 2_000_000_000 },
+            new QueueRecord { Id = 41, ItemId = 1200, DownloadId = "fakefast", Size = 5_000_000 },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal([41], arr.Deleted);                          // only the fake runt is removed + blocklisted
+        Assert.Contains(arr.DeleteCalls, d => d.Id == 41 && d.RemoveFromClient && d.Blocklist); // removed from client AND blocklisted
+        Assert.Equal(1, metrics.LosersKilled);
+        Assert.Contains(events.Events, e => e.Kind == "fake_rejected" && e.ItemId == 1200);
+        Assert.Contains(metrics.IncidentTypes, t => t == "fake_rejected");
+    }
+
+    [Fact]
+    public async Task FakeGuard_CompletedRunt_DoesNotEndTheRace()
+    {
+        // The dangerous case: a tiny fake COMPLETES first. The done-branch must not treat it as the
+        // winner and cull the real release; the runt is blocklisted and the real download continues.
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var qbit = new FakeQbit
+        {
+            Torrents =
+            {
+                ["realdl"] = new TorrentInfo { Progress = 0.5, DlSpeed = 1.0 * 1024 * 1024 },
+                ["fakedone"] = new TorrentInfo { Progress = 1.0, DlSpeed = 0 },
+            },
+        };
+        var events = new CountingEventSink();
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 50, ItemId = 1300, DownloadId = "realdl", Size = 2_000_000_000 },
+            new QueueRecord { Id = 51, ItemId = 1300, DownloadId = "fakedone", Size = 4_000_000 },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal([51], arr.Deleted);   // the completed fake is reaped, NOT kept as the winner
+        Assert.DoesNotContain(50, arr.Deleted);
+        Assert.Contains(events.Events, e => e.Kind == "fake_rejected");
+    }
+
+    [Fact]
+    public async Task FakeGuard_AllCandidatesFake_BlocklistsThenReSearches()
+    {
+        // When every candidate is a runt, blocklist them all and force a fresh search so the *arr
+        // grabs a genuine release next (the blocklist prevents re-grabbing the same fakes).
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var qbit = new FakeQbit { Torrents = { ["onlyfake"] = new TorrentInfo { Progress = 0.8, DlSpeed = 8.0 * 1024 * 1024 } } };
+        var events = new CountingEventSink();
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue = [new QueueRecord { Id = 60, ItemId = 1400, DownloadId = "onlyfake", Size = 3_000_000 }];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal([60], arr.Deleted);            // the lone fake is blocklisted
+        Assert.Contains(1400, arr.ForcedSearches);  // and a genuine release is searched for
+        Assert.Contains(events.Events, e => e.Kind == "fake_rejected");
+    }
+
+    [Fact]
+    public async Task ImportFailed_BlocklistsAndReSearches()
+    {
+        // A download finished but the *arr can't import it (importBlocked). It must be blocklisted
+        // and a different release searched — not left to sit forever blocking the title from Plex.
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var qbit = new FakeQbit { Torrents = { ["stuck"] = new TorrentInfo { Progress = 1.0, DlSpeed = 0 } } };
+        var events = new CountingEventSink();
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics(), events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue = [new QueueRecord { Id = 70, ItemId = 1500, DownloadId = "stuck", Size = 2_000_000_000, TrackedDownloadState = "importBlocked", TrackedDownloadStatus = "warning" }];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal([70], arr.Deleted);            // the un-importable download is blocklisted
+        Assert.Contains(arr.DeleteCalls, d => d.Id == 70 && d.RemoveFromClient && d.Blocklist);
+        Assert.Contains(1500, arr.ForcedSearches);  // and a different release is searched for
+        Assert.Contains(events.Events, e => e.Kind == "import_failed");
+    }
+
+    [Fact]
+    public async Task ImportPending_IsNotTreatedAsFailed()
+    {
+        // A normal, transient importPending must NOT be evicted (the import may still be completing).
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };
+        var qbit = new FakeQbit { Torrents = { ["okimport"] = new TorrentInfo { Progress = 1.0, DlSpeed = 0 } } };
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, new CountingMetrics());
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue = [new QueueRecord { Id = 71, ItemId = 1501, DownloadId = "okimport", Size = 2_000_000_000, TrackedDownloadState = "importPending" }];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Empty(arr.Deleted);                       // not evicted
+        Assert.DoesNotContain(1501, arr.ForcedSearches);
     }
 }

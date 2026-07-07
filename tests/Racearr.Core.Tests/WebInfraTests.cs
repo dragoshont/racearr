@@ -53,7 +53,7 @@ public class WebInfraTests
           { "protocol": "torrent", "seeders": 42, "rejected": true,
             "rejections": ["Release already meets cutoff"],
             "quality": { "quality": { "resolution": 1080, "name": "Bluray-1080p" } },
-            "indexer": "1337x", "indexerId": 3, "infoHash": "ABCDEF", "guid": "g1", "title": "Movie 1080p" }
+            "indexer": "1337x", "indexerId": 3, "infoHash": "ABCDEF", "guid": "g1", "title": "Movie 1080p", "size": 1500000000 }
         ]
         """;
         var client = new ArrClient(new HttpClient(new StubHandler(json)));
@@ -67,6 +67,7 @@ public class WebInfraTests
         Assert.Equal("Release already meets cutoff", Assert.Single(r.Rejections));
         Assert.Equal(3, r.IndexerId);
         Assert.Equal("ABCDEF", r.InfoHash);
+        Assert.Equal(1500000000, r.Size);                                   // size drives the fake/runt guard
     }
 
     [Fact]
@@ -75,7 +76,7 @@ public class WebInfraTests
         const string json = """
         { "records": [
           { "id": 7, "movieId": 55, "downloadId": "ABC123", "title": "Q",
-            "size": 1000, "sizeleft": 250, "trackedDownloadState": "downloading" }
+            "size": 1000, "sizeleft": 250, "trackedDownloadState": "downloading", "trackedDownloadStatus": "warning" }
         ] }
         """;
         var client = new ArrClient(new HttpClient(new StubHandler(json)));
@@ -85,7 +86,9 @@ public class WebInfraTests
         Assert.Equal(7, q.Id);
         Assert.Equal(55, q.ItemId);            // movieId -> ItemId for a Radarr instance
         Assert.Equal("abc123", q.DownloadId);  // lowercased to match qBittorrent hash keys
+        Assert.Equal(1000, q.Size);
         Assert.Equal(250, q.SizeLeft);
         Assert.Equal("downloading", q.TrackedDownloadState);
+        Assert.Equal("warning", q.TrackedDownloadStatus);
     }
 }

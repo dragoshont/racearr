@@ -55,6 +55,8 @@ public static class RaceDecisions
         {
             if (r.Protocol != "torrent") continue;
             if (r.Seeders < o.RaceMinSeeders) continue;
+            // Reject implausibly-small releases (fakes/samples) up front; unknown size (0) is allowed.
+            if (o.RaceMinSizeMb > 0 && r.Size > 0 && r.Size < o.RaceMinSizeMb * (long)MB) continue;
             // Only reject a *known* resolution above the cap (unknown res = 0 is allowed).
             if (o.RaceMaxResolution > 0 && r.Resolution > 0 && r.Resolution > o.RaceMaxResolution) continue;
             if (!IsRaceableRejection(r)) continue;
@@ -84,4 +86,28 @@ public static class RaceDecisions
     /// <summary>Race outcome label: whether the kept (fastest) candidate reached the target speed.</summary>
     public static string RaceOutcome(bool haveWinner)
         => haveWinner ? "won_target" : "kept_below_target";
+
+    /// <summary>
+    /// A downloading candidate is "runt-sized" — implausibly small to be the real media — and must
+    /// never be allowed to win a race. A tiny fake / sample / malware torrent downloads fastest and
+    /// finishes first, so a pure speed heuristic would keep it and cull the genuine releases. Judged
+    /// absolutely (below <c>RaceMinSizeMb</c>) and relatively (a fraction <c>RaceRuntRatio</c> of the
+    /// largest same-item candidate). Unknown size (0) is never treated as a runt. Pure/side-effect-free.
+    /// </summary>
+    public static bool IsRuntSize(long sizeBytes, long largestCandidateBytes, RacearrOptions o)
+    {
+        if (sizeBytes <= 0) return false;
+        if (o.RaceMinSizeMb > 0 && sizeBytes < o.RaceMinSizeMb * (long)MB) return true;
+        if (o.RaceRuntRatio > 0 && largestCandidateBytes > 0 && sizeBytes < largestCandidateBytes * o.RaceRuntRatio) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when a download finished but the *arr cannot import it — a terminal dead-end for
+    /// time-to-Plex. Covers <c>importBlocked</c> (manual intervention needed), <c>importFailed</c>
+    /// and <c>failedPending</c>. A normal, transient <c>importPending</c> is deliberately NOT treated
+    /// as failed (the import may still be completing). Pure/side-effect-free.
+    /// </summary>
+    public static bool IsImportFailed(QueueRecord rec)
+        => rec.TrackedDownloadState is "importBlocked" or "importFailed" or "failedPending";
 }

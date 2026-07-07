@@ -33,6 +33,7 @@ public sealed class RaceEngine
     private readonly Dictionary<string, PickupState> _pickup = new();        // "kind:iid" -> pickup tracking
     private readonly HashSet<string> _baselineDl = new();                    // downloads present at startup
     private readonly HashSet<string> _baselineWanted = new();                // wanted keys present at startup
+    private readonly HashSet<string> _reaped = new();                        // fake download-ids already reported (avoid dup incidents)
     private bool _primed;
 
     public RaceEngine(
@@ -155,6 +156,68 @@ public sealed class RaceEngine
 
             if (cand.Count == 0) continue;
             if (cand.All(c => c.Baseline)) continue; // never manage the pre-existing backlog
+
+            // ---- FAKE GUARD: reap runt-sized candidates — tiny fake/sample/malware torrents that
+            // download fastest and would otherwise "win" a race while the genuine releases are culled.
+            // They are always blocklisted so the *arr won't re-grab them; baseline items are untouched. ----
+            var largestSize = cand.Max(c => c.Record.Size);
+            bool IsFake(Candidate c) => !c.Baseline && RaceDecisions.IsRuntSize(c.Record.Size, largestSize, _o);
+            if (cand.Any(IsFake))
+            {
+                foreach (var f in cand.Where(IsFake))
+                {
+                    if (_reaped.Add(f.Hash))
+                    {
+                        Incident("fake_rejected",
+                            $"{inst.Name} item {iid}: rejecting runt {f.Record.Size / Mb:0} MB '{Trunc(f.Record.Title, 50)}' " +
+                            $"(largest alternate {largestSize / Mb:0} MB) — blocklisting so it is not re-grabbed");
+                        _events.Record(new RaceEvent { Kind = "fake_rejected", Instance = inst.Name, ItemId = iid, Detail = Trunc(f.Record.Title, 60) });
+                    }
+                    await KillAsync(inst, f.Record, f.Torrent, ct, forceBlocklist: true);
+                }
+                cand = cand.Where(c => !IsFake(c)).ToList();
+                // Every candidate was a fake: they are blocklisted, so re-search for a genuine release
+                // (cooldown-gated to avoid churn) and move on.
+                if (cand.Count == 0 || cand.All(c => c.Baseline))
+                {
+                    _raceStart.Remove(gkey);
+                    if (!(_cooldown.TryGetValue(gkey, out var cu) && now < cu))
+                    {
+                        await ForceSearchAsync(inst, iid, ct);
+                        _cooldown[gkey] = now.AddSeconds(_o.RaceCooldownSeconds);
+                    }
+                    continue;
+                }
+            }
+
+            // ---- IMPORT-FAILED EVICTION: a download that finished but the *arr can't import
+            // (importBlocked / importFailed / failedPending) is a dead end for time-to-Plex —
+            // blocklist it and search for a different release so the title still lands. ----
+            if (cand.Any(c => !c.Baseline && RaceDecisions.IsImportFailed(c.Record)))
+            {
+                foreach (var s in cand.Where(c => !c.Baseline && RaceDecisions.IsImportFailed(c.Record)))
+                {
+                    if (_reaped.Add(s.Hash))
+                    {
+                        Incident("import_failed",
+                            $"{inst.Name} item {iid}: '{Trunc(s.Record.Title, 50)}' finished but won't import " +
+                            $"({s.Record.TrackedDownloadState}) — blocklisting + searching a different release");
+                        _events.Record(new RaceEvent { Kind = "import_failed", Instance = inst.Name, ItemId = iid, Detail = Trunc(s.Record.Title, 60) });
+                    }
+                    await KillAsync(inst, s.Record, s.Torrent, ct, forceBlocklist: true);
+                }
+                cand = cand.Where(c => !RaceDecisions.IsImportFailed(c.Record)).ToList();
+                if (cand.Count == 0 || cand.All(c => c.Baseline))
+                {
+                    _raceStart.Remove(gkey);
+                    if (!(_cooldown.TryGetValue(gkey, out var cu2) && now < cu2))
+                    {
+                        await ForceSearchAsync(inst, iid, ct);
+                        _cooldown[gkey] = now.AddSeconds(_o.RaceCooldownSeconds);
+                    }
+                    continue;
+                }
+            }
 
             var exclude = cand.Select(c => c.Hash).ToHashSet();
             var winner = cand.MaxBy(c => c.Speed);
@@ -337,9 +400,11 @@ public sealed class RaceEngine
     /// torrents are never removed from the client (hit-and-run safety) — only detached from the
     /// queue so they keep seeding. Port of <c>kill_queue_record</c>.
     /// </summary>
-    private async Task KillAsync(ArrInstance inst, QueueRecord rec, TorrentInfo? torrent, CancellationToken ct)
+    private async Task KillAsync(ArrInstance inst, QueueRecord rec, TorrentInfo? torrent, CancellationToken ct, bool forceBlocklist = false)
     {
-        var isPrivate = _o.ProtectPrivate && RaceDecisions.IsPrivateTorrent(torrent, _o);
+        // A fake (forceBlocklist) is always removed + blocklisted so the *arr won't re-grab it; the
+        // private-tracker hit-and-run protection does not apply to a torrent that carries no real media.
+        var isPrivate = !forceBlocklist && _o.ProtectPrivate && RaceDecisions.IsPrivateTorrent(torrent, _o);
         var removeFromClient = !isPrivate;
         var mode = isPrivate ? " (detach-only, private)" : "";
         var title = Trunc(rec.Title, 60);

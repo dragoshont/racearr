@@ -31,6 +31,15 @@ public sealed class RacearrOptions
     public int RaceMinSeeders { get; init; } = 3;
     public int RaceMaxResolution { get; init; } = 1080;
 
+    /// <summary>Releases/downloads smaller than this are treated as fakes — a runt that races fast
+    /// but carries no real media (a sample, a *.lnk/*.zipx, malware). 0 disables the absolute floor.</summary>
+    public int RaceMinSizeMb { get; init; } = 50;
+    /// <summary>A downloading candidate smaller than this fraction of the largest same-item candidate
+    /// is a runt/fake and may never win a race. 0 disables (default): racearr prefers fast low-quality
+    /// releases, so the absolute floor + import-failure eviction are the primary fake guards; enable
+    /// this only for libraries where a much-smaller alternate is reliably a fake.</summary>
+    public double RaceRuntRatio { get; init; } = 0.0;
+
     // ----- safety -----
     public bool ProtectPrivate { get; init; } = true;
     public IReadOnlyList<string> PrivateIndexers { get; init; } = [];
@@ -105,6 +114,8 @@ public sealed class RacearrOptions
             MaxActiveRaces = Int("MAX_ACTIVE_RACES", 6),
             RaceMinSeeders = Int("RACE_MIN_SEEDERS", 3),
             RaceMaxResolution = Int("RACE_MAX_RESOLUTION", 1080),
+            RaceMinSizeMb = Int("RACE_MIN_SIZE_MB", 50),
+            RaceRuntRatio = Dbl("RACE_RUNT_RATIO", 0.0),
 
             ProtectPrivate = Bool("PROTECT_PRIVATE", true),
             PrivateIndexers = List("PRIVATE_INDEXERS"),
@@ -135,6 +146,8 @@ public sealed class RacearrOptions
             ["MAX_ACTIVE_RACES"] = MaxActiveRaces.ToString(inv),
             ["RACE_MIN_SEEDERS"] = RaceMinSeeders.ToString(inv),
             ["RACE_MAX_RESOLUTION"] = RaceMaxResolution.ToString(inv),
+            ["RACE_MIN_SIZE_MB"] = RaceMinSizeMb.ToString(inv),
+            ["RACE_RUNT_RATIO"] = RaceRuntRatio.ToString(inv),
             ["PROTECT_PRIVATE"] = ProtectPrivate ? "true" : "false",
             // DRY_RUN is deliberately absent: it is an env-only kill switch, never persisted.
         };

@@ -47,6 +47,7 @@ public sealed class ArrClient(HttpClient http) : IArrClient
                     Size = GetLong(r, "size") ?? 0,
                     SizeLeft = GetLong(r, "sizeleft") ?? 0,
                     TrackedDownloadState = GetStr(r, "trackedDownloadState"),
+                    TrackedDownloadStatus = GetStr(r, "trackedDownloadStatus"),
                 });
             }
         }
@@ -107,6 +108,7 @@ public sealed class ArrClient(HttpClient http) : IArrClient
                     InfoHash = GetStr(r, "infoHash") ?? "",
                     Guid = GetStr(r, "guid") ?? "",
                     Title = GetStr(r, "title") ?? "",
+                    Size = GetLong(r, "size") ?? 0,
                 });
             }
         }
