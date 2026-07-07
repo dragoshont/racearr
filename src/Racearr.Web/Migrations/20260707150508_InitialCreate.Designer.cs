@@ -11,7 +11,7 @@ using Racearr.Web;
 namespace Racearr.Web.Migrations
 {
     [DbContext(typeof(RacearrDbContext))]
-    [Migration("20260707133501_InitialCreate")]
+    [Migration("20260707150508_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -50,7 +50,7 @@ namespace Racearr.Web.Migrations
                         .HasMaxLength(48)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("TimestampUtc")
+                    b.Property<DateTime>("TimestampUtc")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

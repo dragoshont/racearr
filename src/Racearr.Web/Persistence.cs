@@ -69,3 +69,17 @@ public sealed class DbEventSink(IDbContextFactory<RacearrDbContext> factory, ILo
         }
     }
 }
+
+/// <summary>SQLite-backed read side for the history UI (newest first, optional kind filter).</summary>
+public sealed class DbEventHistory(IDbContextFactory<RacearrDbContext> factory) : IEventHistory
+{
+    public IReadOnlyList<RaceEvent> Recent(int limit, string? kind = null)
+    {
+        using var db = factory.CreateDbContext();
+        IQueryable<RaceEvent> q = db.RaceEvents;
+        if (!string.IsNullOrWhiteSpace(kind)) q = q.Where(e => e.Kind == kind);
+        // Newest first by event time (the indexed column), with the insertion id as a stable
+        // tie-breaker so same-instant events keep a deterministic order.
+        return q.OrderByDescending(e => e.TimestampUtc).ThenByDescending(e => e.Id).Take(limit).ToList();
+    }
+}

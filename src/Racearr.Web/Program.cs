@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using MudBlazor.Services;
 using Prometheus;
 using Racearr.Core;
 using Racearr.Web;
+using Racearr.Web.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,6 +64,11 @@ builder.Services.AddHttpClient<IQbitClient, QbitClient>();
 builder.Services.AddSingleton<RaceEngine>();
 builder.Services.AddHostedService<RaceEngineHostedService>();
 
+// Blazor Server UI (dashboard / settings / history) + its read-side history query.
+builder.Services.AddSingleton<IEventHistory, DbEventHistory>();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddMudServices();
+
 // Bind the health/metrics server to HEALTH_PORT (9797 by default).
 builder.WebHost.UseUrls($"http://0.0.0.0:{options.HealthPort}");
 
@@ -73,6 +80,9 @@ var state = app.Services.GetRequiredService<RaceEngineState>();
 metrics.PreInitialize(options);
 Metrics.DefaultRegistry.AddBeforeCollectCallback(() => metrics.RefreshGauges(state));
 
+app.UseStaticFiles();
+app.UseAntiforgery();
+
 app.MapGet("/healthz", (RaceEngineState s, RacearrOptions o) =>
 {
     // Liveness: fail if the control loop has gone stale so a wedged pod is restarted
@@ -82,5 +92,6 @@ app.MapGet("/healthz", (RaceEngineState s, RacearrOptions o) =>
 });
 app.MapGet("/status", (RaceEngineState s) => Results.Json(s.Snapshot()));
 app.MapMetrics(); // Prometheus exposition at /metrics
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();

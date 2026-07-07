@@ -17,7 +17,7 @@ public sealed class Setting
 public sealed class RaceEvent
 {
     public int Id { get; set; }
-    public DateTimeOffset TimestampUtc { get; set; } = DateTimeOffset.UtcNow;
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>One of: <c>pickup</c>, <c>race_started</c>, <c>race_outcome</c>, <c>incident</c>, <c>kill</c>.</summary>
     public required string Kind { get; set; }
@@ -48,6 +48,12 @@ public sealed class NullEventSink : IEventSink
 {
     public static readonly NullEventSink Instance = new();
     public void Record(RaceEvent evt) { }
+}
+
+/// <summary>Read-side history query for the UI: recent events, newest first, optionally by kind.</summary>
+public interface IEventHistory
+{
+    IReadOnlyList<RaceEvent> Recent(int limit, string? kind = null);
 }
 
 /// <summary>

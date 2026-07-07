@@ -1,0 +1,49 @@
+@inherits LayoutComponentBase
+@inject RaceEngineState State
+
+<MudThemeProvider Theme="@Theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIcon Icon="@Icons.Material.Filled.Speed" Class="mr-2" />
+        <MudText Typo="Typo.h6">racearr</MudText>
+        <MudSpacer />
+        @if (State.DryRun)
+        {
+            <MudChip T="string" Color="Color.Warning" Size="Size.Small" Icon="@Icons.Material.Filled.Visibility">DRY-RUN</MudChip>
+        }
+        else
+        {
+            <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.Bolt">ARMED</MudChip>
+        }
+    </MudAppBar>
+    <MudDrawer Open="true" Variant="@DrawerVariant.Persistent" Elevation="1" ClipMode="DrawerClipMode.Always">
+        <MudNavMenu>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="/settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune">Settings</MudNavLink>
+            <MudNavLink Href="/history" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.History">History</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pa-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private static readonly MudTheme Theme = new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#5aa9e6",
+            AppbarBackground = "#1b2733",
+            Background = "#151b23",
+            Surface = "#1b2733",
+            DrawerBackground = "#1b2733",
+        },
+    };
+}

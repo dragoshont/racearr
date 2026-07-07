@@ -1,0 +1,117 @@
+@page "/"
+@inject RaceEngineState State
+@inject RacearrOptions Options
+@implements IDisposable
+
+<PageTitle>racearr — status</PageTitle>
+
+<MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h5">Status</MudText>
+    <MudSpacer />
+    <MudChip T="string" Size="Size.Small"
+             Icon="@(_snap.DryRun ? Icons.Material.Filled.Visibility : Icons.Material.Filled.Bolt)"
+             Color="@(_snap.DryRun ? Color.Warning : Color.Success)">
+        @(_snap.DryRun ? "DRY-RUN — watching only" : "ARMED")
+    </MudChip>
+</MudStack>
+
+<MudPaper Class="pa-4 mb-6" Elevation="1">
+    <MudText Typo="Typo.subtitle1">How a title flows</MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+        Each arrow is a time budget racearr enforces between stages.
+    </MudText>
+    <div class="d-flex flex-wrap align-center" style="gap:8px">
+        @for (var i = 0; i < Stages.Length; i++)
+        {
+            var s = Stages[i];
+            <MudPaper Outlined="true" Class="pa-3" Style="min-width:150px;max-width:210px;flex:0 0 auto">
+                <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                    <MudIcon Icon="@s.Icon" Size="Size.Large" Color="Color.Primary" />
+                    <MudText Typo="Typo.subtitle2" Align="Align.Center">@s.Title</MudText>
+                    <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">@s.Subtitle</MudText>
+                    @if (s.Badge is not null)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Class="mt-1">@s.Badge</MudChip>
+                    }
+                </MudStack>
+            </MudPaper>
+            @if (i < Connectors.Length)
+            {
+                var c = Connectors[i];
+                <MudStack AlignItems="AlignItems.Center" Spacing="0" Style="min-width:130px;flex:0 0 auto">
+                    <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">@c.Label</MudText>
+                    <MudIcon Icon="@Icons.Material.Filled.ArrowRightAlt" />
+                    <MudText Typo="Typo.caption" Align="Align.Center" Style="color:var(--mud-palette-warning)">@c.Budget</MudText>
+                </MudStack>
+            }
+        }
+    </div>
+</MudPaper>
+
+<MudText Typo="Typo.subtitle1" Class="mb-3">Live counters</MudText>
+<MudGrid Spacing="3">
+    @foreach (var card in Cards())
+    {
+        <MudItem xs="12" sm="6" md="4">
+            <MudCard Elevation="1">
+                <MudCardContent>
+                    <MudStack Row AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@card.Icon" Color="@card.Color" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">@card.Label</MudText>
+                    </MudStack>
+                    <MudText Typo="Typo.h4" Class="mt-2">@card.Value</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@card.Hint</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private StatusSnapshot _snap = default!;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        _snap = State.Snapshot();
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            _snap = State.Snapshot();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private record Stage(string Icon, string Title, string Subtitle, string? Badge);
+    private record Conn(string Label, string Budget);
+
+    private Stage[] Stages =>
+    [
+        new(Icons.Material.Filled.Bookmark, "Requested", "Plex Watchlist · Seerr", null),
+        new(Icons.Material.Filled.Movie, "Grabbed", "Radarr · Sonarr", null),
+        new(Icons.Material.Filled.Bolt, "Downloading & racing", "qBittorrent",
+            _snap.ActiveRaces > 0 ? $"{_snap.ActiveRaces} racing now" : null),
+        new(Icons.Material.Filled.VideoLibrary, "In your library", "imported by *arr", null),
+    ];
+
+    private Conn[] Connectors =>
+    [
+        new("must start within", Human(Options.PickupSlaSeconds)),
+        new("if slower than", $"{Options.SpeedSlaMbps:0.#} MB/s for {Human(Options.SpeedSlaSeconds)} → race"),
+        new("keep the one at", $"≥ {Options.RaceTargetMbps:0.#} MB/s, drop the rest"),
+    ];
+
+    private IEnumerable<(string Label, string Value, string Hint, string Icon, Color Color)> Cards() =>
+    [
+        ("Engine loops", _snap.Loops.ToString("N0"), $"heartbeat · last check {_snap.LastLoopAgeSeconds:0.#}s ago", Icons.Material.Filled.Loop, Color.Info),
+        ("Downloads managed", _snap.ManagedDownloads.ToString("N0"), "started since racearr came up", Icons.Material.Filled.Download, Color.Primary),
+        ("Races run", _snap.RacesStarted.ToString("N0"), $"{_snap.CandidatesGrabbed:N0} alternates grabbed", Icons.Material.Filled.DirectionsRun, Color.Primary),
+        ("Slow copies dropped", _snap.LosersKilled.ToString("N0"), "losing alternates removed", Icons.Material.Filled.Block, Color.Default),
+        ("Incidents", _snap.Incidents.ToString("N0"), "SLA breaches raised", Icons.Material.Filled.Warning, _snap.Incidents > 0 ? Color.Error : Color.Success),
+        ("Racing now", _snap.ActiveRaces.ToString("N0"), "races in progress", Icons.Material.Filled.FlagCircle, Color.Default),
+    ];
+
+    private static string Human(int seconds)
+        => seconds >= 60 && seconds % 60 == 0 ? $"{seconds / 60} min" : $"{seconds}s";
+
+    public void Dispose() => _timer?.Dispose();
+}

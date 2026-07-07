@@ -17,7 +17,7 @@ namespace Racearr.Web.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    TimestampUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    TimestampUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     Kind = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
                     Instance = table.Column<string>(type: "TEXT", maxLength: 16, nullable: true),
                     ItemId = table.Column<int>(type: "INTEGER", nullable: true),

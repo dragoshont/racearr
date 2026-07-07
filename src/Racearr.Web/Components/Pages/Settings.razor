@@ -1,0 +1,56 @@
+@page "/settings"
+@inject ISettingsStore Store
+@inject ISnackbar Snackbar
+
+<PageTitle>racearr — settings</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-2">Settings</MudText>
+<MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">
+    Saved changes are stored in the database and take effect the next time racearr restarts.
+    Connection details and API keys are set with environment variables, never here.
+</MudAlert>
+
+<MudPaper Class="pa-4" Elevation="1" Style="max-width:720px">
+    @foreach (var group in SettingsCatalog.All.GroupBy(s => s.Group))
+    {
+        <MudText Typo="Typo.subtitle1" Class="mt-3 mb-2">@group.Key</MudText>
+        <MudStack Spacing="4" Class="mb-2">
+            @foreach (var s in group)
+            {
+                @if (s.IsBool)
+                {
+                    <div>
+                        <MudSwitch T="bool" Value="@BoolVal(s.Key)" Label="@s.Label" Color="Color.Primary"
+                                   ValueChanged="@(v => _values[s.Key] = v ? "true" : "false")" />
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@s.Help</MudText>
+                    </div>
+                }
+                else
+                {
+                    <MudTextField T="string" Value="@_values.GetValueOrDefault(s.Key)" Label="@s.Label"
+                                  HelperText="@s.Help" Adornment="Adornment.End" AdornmentText="@s.Unit"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  ValueChanged="@(v => _values[s.Key] = v)" />
+                }
+            }
+        </MudStack>
+    }
+    <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
+               StartIcon="@Icons.Material.Filled.Save">Save changes</MudButton>
+</MudPaper>
+
+@code {
+    private Dictionary<string, string> _values = new();
+
+    protected override void OnInitialized() => _values = new(Store.GetAll());
+
+    private bool BoolVal(string key) => _values.GetValueOrDefault(key) == "true";
+
+    private void Save()
+    {
+        foreach (var s in SettingsCatalog.All)
+            if (_values.TryGetValue(s.Key, out var v))
+                Store.Set(s.Key, v);
+        Snackbar.Add("Saved — restart racearr to apply.", Severity.Success);
+    }
+}

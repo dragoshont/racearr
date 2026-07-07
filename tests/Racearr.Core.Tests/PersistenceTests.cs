@@ -194,4 +194,44 @@ public class PersistenceTests
         Assert.True(store.GetAll().ContainsKey("POLL_SECONDS"));
         Assert.False(store.SeedAndLoad(new Dictionary<string, string>()).ContainsKey("RADARR_API_KEY"));
     }
+
+    [Fact]
+    public void EventHistory_ReturnsNewestFirst_FiltersByKind_AndLimits()
+    {
+        using var factory = new InMemoryFactory();
+        var sink = new DbEventSink(factory, NullLogger<DbEventSink>.Instance);
+        sink.Record(new RaceEvent { Kind = "pickup", Instance = "radarr", ItemId = 1 });
+        sink.Record(new RaceEvent { Kind = "kill", Instance = "radarr", Outcome = "removed" });
+        sink.Record(new RaceEvent { Kind = "incident", Outcome = "speed_sla" });
+
+        var history = new DbEventHistory(factory);
+
+        var all = history.Recent(10);
+        Assert.Equal(3, all.Count);
+        Assert.Equal("incident", all[0].Kind); // newest first (highest id)
+
+        var kills = history.Recent(10, "kill");
+        Assert.Single(kills);
+        Assert.Equal("removed", kills[0].Outcome);
+
+        Assert.Single(history.Recent(1)); // limit honored
+    }
+
+    [Fact]
+    public void EventHistory_OrdersByTimestamp_NotInsertionId()
+    {
+        using var factory = new InMemoryFactory();
+        using (var db = factory.CreateDbContext())
+        {
+            // Inserted in id order a,b,c but with out-of-order timestamps: b is newest, a is oldest.
+            db.RaceEvents.Add(new RaceEvent { Kind = "a", TimestampUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) });
+            db.RaceEvents.Add(new RaceEvent { Kind = "b", TimestampUtc = new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) });
+            db.RaceEvents.Add(new RaceEvent { Kind = "c", TimestampUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc) });
+            db.SaveChanges();
+        }
+
+        var recent = new DbEventHistory(factory).Recent(10);
+
+        Assert.Equal(["b", "c", "a"], recent.Select(e => e.Kind));
+    }
 }

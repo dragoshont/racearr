@@ -1,0 +1,64 @@
+@page "/history"
+@inject IEventHistory Events
+
+<PageTitle>racearr — history</PageTitle>
+
+<MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h5">Race history</MudText>
+    <MudSpacer />
+    <MudSelect T="string" Value="_kind" ValueChanged="OnKindChanged" Label="Kind"
+               Dense="true" Variant="Variant.Outlined" Style="min-width:170px">
+        <MudSelectItem T="string" Value="@("")">All</MudSelectItem>
+        <MudSelectItem T="string" Value="@("pickup")">pickup</MudSelectItem>
+        <MudSelectItem T="string" Value="@("race_started")">race_started</MudSelectItem>
+        <MudSelectItem T="string" Value="@("race_outcome")">race_outcome</MudSelectItem>
+        <MudSelectItem T="string" Value="@("kill")">kill</MudSelectItem>
+        <MudSelectItem T="string" Value="@("incident")">incident</MudSelectItem>
+    </MudSelect>
+</MudStack>
+
+<MudTable Items="_events" Dense="true" Hover="true" Elevation="1" Breakpoint="Breakpoint.Sm">
+    <HeaderContent>
+        <MudTh>Time (UTC)</MudTh>
+        <MudTh>Kind</MudTh>
+        <MudTh>Instance</MudTh>
+        <MudTh>Item</MudTh>
+        <MudTh>Outcome</MudTh>
+        <MudTh>Detail</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Time">@context.TimestampUtc.ToString("MM-dd HH:mm:ss")</MudTd>
+        <MudTd DataLabel="Kind"><MudChip T="string" Size="Size.Small" Color="@KindColor(context.Kind)">@context.Kind</MudChip></MudTd>
+        <MudTd DataLabel="Instance">@context.Instance</MudTd>
+        <MudTd DataLabel="Item">@(context.ItemId?.ToString() ?? "—")</MudTd>
+        <MudTd DataLabel="Outcome">@context.Outcome</MudTd>
+        <MudTd DataLabel="Detail">@context.Detail</MudTd>
+    </RowTemplate>
+    <NoRecordsContent>
+        <MudText Class="pa-4">No events yet — the engine records pickups, races, kills and incidents here.</MudText>
+    </NoRecordsContent>
+</MudTable>
+
+@code {
+    private IReadOnlyList<RaceEvent> _events = [];
+    private string _kind = "";
+
+    protected override void OnInitialized() => Load();
+
+    private void OnKindChanged(string kind)
+    {
+        _kind = kind;
+        Load();
+    }
+
+    private void Load() => _events = Events.Recent(200, string.IsNullOrEmpty(_kind) ? null : _kind);
+
+    private static Color KindColor(string kind) => kind switch
+    {
+        "incident" => Color.Error,
+        "race_outcome" => Color.Success,
+        "race_started" => Color.Info,
+        "kill" => Color.Warning,
+        _ => Color.Default,
+    };
+}

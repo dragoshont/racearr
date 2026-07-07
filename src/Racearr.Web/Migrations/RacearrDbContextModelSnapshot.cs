@@ -47,7 +47,7 @@ namespace Racearr.Web.Migrations
                         .HasMaxLength(48)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("TimestampUtc")
+                    b.Property<DateTime>("TimestampUtc")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link rel="icon" href="data:," />
+    <style>
+        /* Dark-themed replacement for Blazor's default (white) reconnection overlay. */
+        #components-reconnect-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            background: rgba(10, 14, 20, 0.72);
+            font-family: Roboto, "Segoe UI", sans-serif;
+        }
+        #components-reconnect-modal.components-reconnect-show,
+        #components-reconnect-modal.components-reconnect-failed,
+        #components-reconnect-modal.components-reconnect-rejected { display: flex; }
+        #components-reconnect-modal .rc-card {
+            background: #1b2733;
+            color: #e7eaf0;
+            border: 1px solid #2c3340;
+            border-radius: 10px;
+            padding: 24px 32px;
+            min-width: 280px;
+            text-align: center;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+        }
+        #components-reconnect-modal .rc-spinner {
+            width: 30px; height: 30px; margin: 0 auto 14px;
+            border: 3px solid #2c3340; border-top-color: #5aa9e6;
+            border-radius: 50%; animation: rc-spin 1s linear infinite;
+        }
+        #components-reconnect-modal.components-reconnect-failed .rc-spinner,
+        #components-reconnect-modal.components-reconnect-rejected .rc-spinner { display: none; }
+        #components-reconnect-modal .rc-msg { display: none; margin: 0; font-size: 0.95rem; }
+        #components-reconnect-modal.components-reconnect-show .rc-show,
+        #components-reconnect-modal.components-reconnect-failed .rc-failed,
+        #components-reconnect-modal.components-reconnect-rejected .rc-rejected { display: block; }
+        #components-reconnect-modal .rc-card a { color: #5aa9e6; cursor: pointer; text-decoration: none; }
+        #components-reconnect-modal .rc-card a:hover { text-decoration: underline; }
+        @@keyframes rc-spin { to { transform: rotate(360deg); } }
+    </style>
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <div id="components-reconnect-modal">
+        <div class="rc-card">
+            <div class="rc-spinner"></div>
+            <p class="rc-msg rc-show">Reconnecting to racearr&hellip;</p>
+            <p class="rc-msg rc-failed">
+                Connection lost. <a href="" onclick="window.Blazor.reconnect();return false;">Retry now</a>
+            </p>
+            <p class="rc-msg rc-rejected">
+                The session ended. <a href="" onclick="location.reload();return false;">Reload</a>
+            </p>
+        </div>
+    </div>
+
+    <script src="_framework/blazor.web.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+</body>
+</html>
