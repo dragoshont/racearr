@@ -93,4 +93,8 @@ public sealed record TorrentInfo
     public double Progress { get; init; }
     public string Tracker { get; init; } = "";
     public string MagnetUri { get; init; } = "";
+    /// <summary>qBittorrent torrent state (e.g. downloading, stalledDL, metaDL); "" when unknown.</summary>
+    public string State { get; init; } = "";
+    /// <summary>Connected seeds; 0 when the torrent has no peers to pull the data from.</summary>
+    public int NumSeeds { get; init; }
 }

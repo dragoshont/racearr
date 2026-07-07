@@ -32,6 +32,8 @@ public sealed class QbitClient(HttpClient http, RacearrOptions options, ILogger<
                         Progress = Num(t, "progress"),
                         Tracker = Str(t, "tracker") ?? "",
                         MagnetUri = Str(t, "magnet_uri") ?? "",
+                        State = Str(t, "state") ?? "",
+                        NumSeeds = (int)Num(t, "num_seeds"),
                     };
                 }
             }

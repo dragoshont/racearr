@@ -40,6 +40,10 @@ public sealed class RacearrOptions
     /// this only for libraries where a much-smaller alternate is reliably a fake.</summary>
     public double RaceRuntRatio { get; init; } = 0.0;
 
+    /// <summary>A definitively-stalled / metadata-stuck download with no connected peers is raced on
+    /// this shorter fuse instead of waiting the full slow-speed grace (it will not recover on its own).</summary>
+    public int RaceStallSeconds { get; init; } = 45;
+
     // ----- safety -----
     public bool ProtectPrivate { get; init; } = true;
     public IReadOnlyList<string> PrivateIndexers { get; init; } = [];
@@ -116,6 +120,7 @@ public sealed class RacearrOptions
             RaceMaxResolution = Int("RACE_MAX_RESOLUTION", 1080),
             RaceMinSizeMb = Int("RACE_MIN_SIZE_MB", 50),
             RaceRuntRatio = Dbl("RACE_RUNT_RATIO", 0.0),
+            RaceStallSeconds = Int("RACE_STALL_SECONDS", 45),
 
             ProtectPrivate = Bool("PROTECT_PRIVATE", true),
             PrivateIndexers = List("PRIVATE_INDEXERS"),
@@ -148,6 +153,7 @@ public sealed class RacearrOptions
             ["RACE_MAX_RESOLUTION"] = RaceMaxResolution.ToString(inv),
             ["RACE_MIN_SIZE_MB"] = RaceMinSizeMb.ToString(inv),
             ["RACE_RUNT_RATIO"] = RaceRuntRatio.ToString(inv),
+            ["RACE_STALL_SECONDS"] = RaceStallSeconds.ToString(inv),
             ["PROTECT_PRIVATE"] = ProtectPrivate ? "true" : "false",
             // DRY_RUN is deliberately absent: it is an env-only kill switch, never persisted.
         };

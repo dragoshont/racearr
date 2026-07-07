@@ -576,4 +576,47 @@ public class RaceEngineTests
         Assert.Empty(arr.Deleted);                       // not evicted
         Assert.DoesNotContain(1501, arr.ForcedSearches);
     }
+
+    [Fact]
+    public async Task StalledDead_RacesOnTheShortFuse_BeforeTheSlowGrace()
+    {
+        // A peerless stalled download should race alternates on the stall fuse, without waiting the
+        // full slow-speed grace (SpeedSlaSeconds).
+        var o = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false,
+            RaceStallSeconds = 0,      // fuse elapsed immediately
+            SpeedSlaSeconds = 999,     // slow-speed path deliberately NOT triggered
+        };
+        var qbit = new FakeQbit { Torrents = { ["dead"] = new TorrentInfo { State = "stalledDL", NumSeeds = 0, DlSpeed = 0, Progress = 0.0 } } };
+        var metrics = new CountingMetrics();
+        var arr = new FakeArr();       // no releases -> the race falls back to a force-search
+        var engine = NewEngine(o, arr, qbit, metrics);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue = [new QueueRecord { Id = 80, ItemId = 1600, DownloadId = "dead", Size = 2_000_000_000 }];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Contains("stalled_dead", metrics.IncidentTypes);   // raised the stalled incident, not speed_sla
+        Assert.DoesNotContain("speed_sla", metrics.IncidentTypes);
+        Assert.Contains(1600, arr.ForcedSearches);                // raced -> no alternates -> forced a fresh search
+    }
+
+    [Fact]
+    public async Task MetadataStuck_RacesOnTheShortFuse()
+    {
+        // A torrent stuck fetching metadata with no peers is also fast-fused (same short fuse).
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false, RaceStallSeconds = 0, SpeedSlaSeconds = 999 };
+        var qbit = new FakeQbit { Torrents = { ["meta"] = new TorrentInfo { State = "metaDL", NumSeeds = 0, DlSpeed = 0, Progress = 0.0 } } };
+        var metrics = new CountingMetrics();
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, qbit, metrics);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+
+        arr.Queue = [new QueueRecord { Id = 81, ItemId = 1601, DownloadId = "meta", Size = 2_000_000_000 }];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Contains("stalled_dead", metrics.IncidentTypes);
+        Assert.Contains(1601, arr.ForcedSearches);
+    }
 }

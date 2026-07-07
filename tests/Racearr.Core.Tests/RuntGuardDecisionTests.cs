@@ -70,4 +70,27 @@ public class RuntGuardDecisionTests
     [InlineData(null, false)]
     public void IsImportFailed_ClassifiesOnlyTerminalImportFailures(string? state, bool expected)
         => Assert.Equal(expected, RaceDecisions.IsImportFailed(new QueueRecord { TrackedDownloadState = state }));
+
+    [Theory]
+    [InlineData("stalledDL", 0, true)]
+    [InlineData("metaDL", 0, true)]
+    [InlineData("stalledDL", 3, false)]   // still has connected seeds -> may recover, leave to the normal grace
+    [InlineData("downloading", 0, false)]
+    [InlineData("", 0, false)]
+    public void IsStalledDead_OnlyPeerlessStalledOrMetadata(string state, int numSeeds, bool expected)
+        => Assert.Equal(expected, RaceDecisions.IsStalledDead(new TorrentInfo { State = state, NumSeeds = numSeeds }));
+
+    [Fact]
+    public void IsStalledDead_Null_IsFalse()
+        => Assert.False(RaceDecisions.IsStalledDead(null));
+
+    [Fact]
+    public void ShouldStartRaceStalled_FiresOnlyWhenStalledPastFuseAndNotCoolingDown()
+    {
+        var o = new RacearrOptions { RaceStallSeconds = 45 };
+        Assert.True(RaceDecisions.ShouldStartRaceStalled(60, anyStalledDead: true, inCooldown: false, o));
+        Assert.False(RaceDecisions.ShouldStartRaceStalled(30, anyStalledDead: true, inCooldown: false, o));  // before the fuse
+        Assert.False(RaceDecisions.ShouldStartRaceStalled(60, anyStalledDead: false, inCooldown: false, o)); // not stalled
+        Assert.False(RaceDecisions.ShouldStartRaceStalled(60, anyStalledDead: true, inCooldown: true, o));   // cooling down
+    }
 }

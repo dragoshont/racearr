@@ -241,12 +241,17 @@ public sealed class RaceEngine
                 var oldest = cand.Max(c => c.Age);
                 var bestSpeed = cand.Max(c => c.MaxSpeed);
                 var inCooldown = _cooldown.TryGetValue(gkey, out var until) && now < until;
-                if (RaceDecisions.ShouldStartRace(oldest, bestSpeed, inCooldown, _o))
+                var anyStalledDead = cand.Any(c => !c.Baseline && RaceDecisions.IsStalledDead(c.Torrent));
+                var slow = RaceDecisions.ShouldStartRace(oldest, bestSpeed, inCooldown, _o);
+                var stalled = RaceDecisions.ShouldStartRaceStalled(oldest, anyStalledDead, inCooldown, _o);
+                if (slow || stalled)
                 {
                     if (activeRaces >= _o.MaxActiveRaces) continue;
-                    Incident("speed_sla",
-                        $"{inst.Name} item {iid} at {bestSpeed / Mb:0.00} MB/s after {(int)oldest}s " +
-                        $"(< {_o.SpeedSlaMbps} MB/s) — racing alternates");
+                    Incident(stalled && !slow ? "stalled_dead" : "speed_sla",
+                        stalled && !slow
+                            ? $"{inst.Name} item {iid} stalled/dead after {(int)oldest}s (no connected peers) — racing alternates"
+                            : $"{inst.Name} item {iid} at {bestSpeed / Mb:0.00} MB/s after {(int)oldest}s " +
+                              $"(< {_o.SpeedSlaMbps} MB/s) — racing alternates");
 
                     var slots = _o.MaxConcurrentPerItem - cand.Count;
                     var grabbed = 0;

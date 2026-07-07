@@ -83,6 +83,21 @@ public static class RaceDecisions
            && bestSpeedBytes < o.SpeedSlaMbps * MB
            && !inCooldown;
 
+    /// <summary>
+    /// True when qBittorrent reports a torrent as definitively stuck — stalled (no connections
+    /// transferring) or fetching metadata — with zero connected seeds. Such a download will not
+    /// recover on its own, so racearr can race alternates on a shorter fuse than the slow-speed
+    /// grace. A stalled torrent that still has connected seeds is left to the normal grace (it may
+    /// pick up). Pure/side-effect-free.
+    /// </summary>
+    public static bool IsStalledDead(TorrentInfo? t)
+        => t is not null && t.NumSeeds <= 0 && (t.State == "stalledDL" || t.State == "metaDL");
+
+    /// <summary>Whether a non-baseline item with a definitively-stalled download should race on the
+    /// shorter stall fuse (before the normal slow-speed grace has elapsed).</summary>
+    public static bool ShouldStartRaceStalled(double oldestAgeSeconds, bool anyStalledDead, bool inCooldown, RacearrOptions o)
+        => anyStalledDead && oldestAgeSeconds >= o.RaceStallSeconds && !inCooldown;
+
     /// <summary>Race outcome label: whether the kept (fastest) candidate reached the target speed.</summary>
     public static string RaceOutcome(bool haveWinner)
         => haveWinner ? "won_target" : "kept_below_target";
