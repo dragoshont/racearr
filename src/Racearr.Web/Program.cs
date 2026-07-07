@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http.Features;
 using MudBlazor.Services;
 using Prometheus;
+using System.Text.Json;
 using Racearr.Core;
 using Racearr.Web;
 using Racearr.Web.Components;
@@ -92,6 +94,37 @@ app.MapGet("/healthz", (RaceEngineState s, RacearrOptions o) =>
 });
 app.MapGet("/status", (RaceEngineState s) => Results.Json(s.Snapshot()));
 app.MapMetrics(); // Prometheus exposition at /metrics
+
+// Seerr (Overseerr-compatible) webhook receiver: records a `request` history event. Informational
+// only — it never triggers grabs or kills. Antiforgery-exempt (called by Seerr, not the Blazor app).
+app.MapPost("/api/webhook/seerr", async (HttpRequest req, IEventSink events, RacearrOptions o) =>
+{
+    if (!SeerrWebhook.IsAuthorized(o.WebhookToken, req.Headers["X-Webhook-Token"].ToString()))
+        return Results.Unauthorized();
+    // A webhook payload is tiny. Cap the body at 64 KB on the actual bytes read (this covers both
+    // Content-Length and chunked/unknown-length requests). Fail closed: if the cap cannot be set,
+    // refuse rather than fall back to the server's much larger default.
+    var bodySize = req.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (bodySize is null || bodySize.IsReadOnly)
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    bodySize.MaxRequestBodySize = 64 * 1024;
+    try
+    {
+        using var doc = await JsonDocument.ParseAsync(req.Body);
+        var evt = SeerrWebhook.Parse(doc.RootElement);
+        if (evt is not null) events.Record(evt);
+    }
+    catch (BadHttpRequestException)
+    {
+        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge); // body exceeded the cap
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest();
+    }
+    return Results.NoContent();
+}).DisableAntiforgery();
+
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();

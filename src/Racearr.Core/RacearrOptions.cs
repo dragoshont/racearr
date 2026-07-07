@@ -43,6 +43,9 @@ public sealed class RacearrOptions
     public int HealthPort { get; init; } = 9797;
     public string? IncidentWebhookUrl { get; init; }
 
+    /// <summary>Optional shared secret required on the Seerr webhook endpoint (env-only, never persisted).</summary>
+    public string? WebhookToken { get; init; }
+
     /// <summary>True if at least one *arr instance is configured (an API key present).</summary>
     public bool HasAnyInstance => !string.IsNullOrWhiteSpace(RadarrApiKey) || !string.IsNullOrWhiteSpace(SonarrApiKey);
 
@@ -110,6 +113,7 @@ public sealed class RacearrOptions
             DryRun = Bool("DRY_RUN", true),
             HealthPort = Int("HEALTH_PORT", 9797),
             IncidentWebhookUrl = Str("INCIDENT_WEBHOOK_URL"),
+            WebhookToken = Str("WEBHOOK_TOKEN"),
         };
     }
 

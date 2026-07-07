@@ -170,7 +170,9 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `PRIVATE_INDEXERS` | — | Comma-separated indexer names to treat as private |
 | `PRIVATE_TRACKER_DOMAINS` | — | Comma-separated tracker domains to treat as private |
 | `INCIDENT_WEBHOOK_URL` | — | POST `{"text": ...}` on each incident (Discord/ntfy/etc.) |
-| `HEALTH_PORT` | `9797` | Port for `/healthz`, `/status`, and `/metrics` |
+| `HEALTH_PORT` | `9797` | Port for the web UI, `/healthz`, `/status`, and `/metrics` |
+| `DB_PATH` | `/config/racearr.db` | SQLite file for settings + race history (must be an absolute path) |
+| `WEBHOOK_TOKEN` | — | Optional shared secret; when set, `POST /api/webhook/seerr` requires header `X-Webhook-Token` |
 | `LOG_LEVEL` | `INFO` | `INFO` / `DEBUG` |
 
 ### Observability

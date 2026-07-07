@@ -9,6 +9,7 @@
     <MudSelect T="string" Value="_kind" ValueChanged="OnKindChanged" Label="Kind"
                Dense="true" Variant="Variant.Outlined" Style="min-width:170px">
         <MudSelectItem T="string" Value="@("")">All</MudSelectItem>
+        <MudSelectItem T="string" Value="@("request")">request</MudSelectItem>
         <MudSelectItem T="string" Value="@("pickup")">pickup</MudSelectItem>
         <MudSelectItem T="string" Value="@("race_started")">race_started</MudSelectItem>
         <MudSelectItem T="string" Value="@("race_outcome")">race_outcome</MudSelectItem>
@@ -59,6 +60,7 @@
         "race_outcome" => Color.Success,
         "race_started" => Color.Info,
         "kill" => Color.Warning,
+        "request" => Color.Tertiary,
         _ => Color.Default,
     };
 }
