@@ -188,6 +188,33 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 
 ---
 
+## Seerr / Overseerr integration (optional)
+
+racearr can ingest **Seerr / Overseerr** webhook notifications to annotate its
+race history with *who requested* each title. It is purely informational — a
+webhook never starts, stops, or kills a download.
+
+Wire it up in Seerr under **Settings → Notifications → Webhook**:
+
+1. **Webhook URL** — `http://<racearr-host>:9797/api/webhook/seerr`. In Kubernetes
+   use the in-cluster Service, e.g. `http://racearr-metrics.<namespace>.svc.cluster.local:9797/api/webhook/seerr`.
+2. **Notification types** — enable the request-lifecycle events you care about
+   (Request Pending / Approved / Automatically Approved / Available).
+3. **JSON payload** — keep the **default** template. racearr reads its
+   `notification_type`, `subject`, `media.media_type`, and
+   `request.requestedBy_username` fields; `movie` requests are attributed to
+   Radarr and `tv` to Sonarr.
+4. Click **Test** — racearr returns `204` and ignores the test ping (no history row).
+
+**Authentication.** The endpoint is unauthenticated by default and should be
+protected at the network layer (e.g. a Kubernetes NetworkPolicy that only lets
+the Seerr pod reach `:9797`). For defence in depth, set `WEBHOOK_TOKEN` on
+racearr and add a custom header `X-Webhook-Token: <token>` to Seerr's webhook
+config; racearr then requires a constant-time match and rejects anything else
+with `401`.
+
+---
+
 ## How it compares
 
 | Tool | What it does | vs racearr |
