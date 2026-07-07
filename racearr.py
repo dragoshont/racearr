@@ -198,9 +198,110 @@ BASELINE_WANTED = set()  # wanted item keys present at startup (never pickup-ale
 _primed = False
 
 
+# ----------------------------------------------------------------------------- metrics
+# Minimal Prometheus text-format registry (stdlib only). Counters carry labels; a few
+# histograms capture pickup latency, time-to-target-speed and race-winner speed.
+_MLOCK = threading.Lock()
+_COUNTERS = {}   # (name, ((k, v), ...)) -> float
+_HISTS = {}      # name -> {"le": [...], "counts": [...], "sum": float, "count": int}
+PICKUP_BUCKETS = [15, 30, 60, 90, 120, 180, 300, 600]
+TTT_BUCKETS = [30, 60, 90, 120, 180, 300, 600]
+MBPS_BUCKETS = [0.5, 1, 2, 3, 5, 8, 16, 32]
+
+
+def _lk(labels):
+    return tuple(sorted((labels or {}).items()))
+
+
+def m_inc(name, labels=None, value=1.0):
+    with _MLOCK:
+        k = (name, _lk(labels))
+        _COUNTERS[k] = _COUNTERS.get(k, 0.0) + value
+
+
+def m_observe(name, value, buckets):
+    with _MLOCK:
+        h = _HISTS.get(name)
+        if h is None:
+            h = _HISTS[name] = {"le": list(buckets), "counts": [0] * len(buckets),
+                                "sum": 0.0, "count": 0}
+        h["sum"] += value
+        h["count"] += 1
+        for i, b in enumerate(h["le"]):
+            if value <= b:
+                h["counts"][i] += 1
+
+
+def render_metrics():
+    """Render the current metrics in Prometheus text exposition format."""
+    now = time.time()
+    with _lock:
+        loops, last = STATS["loops"], STATS["last_loop"]
+    out = []
+    gauges = {
+        "racearr_up": 1,
+        "racearr_dry_run": 1 if DRY_RUN else 0,
+        "racearr_active_races": len(RACE),
+        "racearr_managed_downloads": sum(1 for h in DL if h not in BASELINE_DL),
+        "racearr_loops_total": loops,
+        "racearr_last_loop_age_seconds": round(now - last, 1) if last else 0,
+    }
+    for n, v in gauges.items():
+        out.append(f"# TYPE {n} gauge")
+        out.append(f"{n} {v}")
+    with _MLOCK:
+        counters = sorted(_COUNTERS.items())
+        hists = [(n, dict(le=list(h["le"]), counts=list(h["counts"]),
+                          sum=h["sum"], count=h["count"])) for n, h in _HISTS.items()]
+    typed = set()
+    for (name, lk), val in counters:
+        if name not in typed:
+            out.append(f"# TYPE {name} counter")
+            typed.add(name)
+        lbl = ("{" + ",".join(f'{k}="{v}"' for k, v in lk) + "}") if lk else ""
+        out.append(f"{name}{lbl} {val}")
+    for name, h in sorted(hists):
+        out.append(f"# TYPE {name} histogram")
+        for i, le in enumerate(h["le"]):
+            out.append(f'{name}_bucket{{le="{le}"}} {h["counts"][i]}')
+        out.append(f'{name}_bucket{{le="+Inf"}} {h["count"]}')
+        out.append(f"{name}_sum {h['sum']}")
+        out.append(f"{name}_count {h['count']}")
+    return ("\n".join(out) + "\n").encode()
+
+
+def metrics_init():
+    """Pre-register the known metric series at 0 so dashboards render clean zeros
+    instead of 'No data' before the first event fires. Prometheus best practice is
+    to expose every known label set from process start; the label spaces here are
+    small and closed (instances, pickup results, race outcomes, incident types)."""
+    with _MLOCK:
+        for inst in INSTANCES:
+            k = inst["kind"]
+            for name in ("racearr_races_started_total",
+                         "racearr_candidates_grabbed_total",
+                         "racearr_losers_killed_total",
+                         "racearr_downloads_reached_target_total"):
+                _COUNTERS.setdefault((name, _lk({"instance": k})), 0.0)
+            for result in ("in_sla", "breached"):
+                _COUNTERS.setdefault(
+                    ("racearr_pickups_total", _lk({"instance": k, "result": result})), 0.0)
+            for outcome in ("won_target", "kept_below_target"):
+                _COUNTERS.setdefault(
+                    ("racearr_race_outcomes_total", _lk({"instance": k, "outcome": outcome})), 0.0)
+        for itype in ("pickup_sla", "speed_sla", "race_no_target"):
+            _COUNTERS.setdefault(("racearr_incidents_total", _lk({"type": itype})), 0.0)
+        for name, buckets in (("racearr_pickup_latency_seconds", PICKUP_BUCKETS),
+                              ("racearr_time_to_target_seconds", TTT_BUCKETS),
+                              ("racearr_race_winner_mbps", MBPS_BUCKETS)):
+            _HISTS.setdefault(name, {"le": list(buckets), "counts": [0] * len(buckets),
+                                     "sum": 0.0, "count": 0})
+
+
 def incident(itype, msg, **fields):
     with _lock:
         STATS["incidents"] += 1
+    m_inc("racearr_incidents_total", {"type": itype})
     rec = {"level": "INCIDENT", "type": itype, "msg": msg,
            "ts": datetime.now(timezone.utc).isoformat(), **fields}
     log.warning("INCIDENT %s", json.dumps(rec))
@@ -346,6 +447,8 @@ def kill_queue_record(inst, rec, qbt):
         with _lock:
             if remove_client:
                 STATS["losers_killed"] += 1
+        if remove_client:
+            m_inc("racearr_losers_killed_total", {"instance": inst["kind"]})
         log.info("KILL%s %s", " (detach-only, private)" if private else "", title)
     except Exception as e:  # noqa: BLE001
         log.warning("kill failed (%s): %s", title, e)
@@ -386,6 +489,10 @@ def process_instance(inst, qbt):
                 1 - (rec.get("sizeleft") or 0) / max(rec.get("size") or 1, 1))
             st = DL.setdefault(dlid, {"first_seen": now, "max_speed": 0, "kind": inst["kind"]})
             st["max_speed"] = max(st["max_speed"], speed)
+            if not st.get("target_hit") and speed >= RACE_TARGET_MBPS * MB and dlid not in BASELINE_DL:
+                st["target_hit"] = now
+                m_observe("racearr_time_to_target_seconds", now - st["first_seen"], TTT_BUCKETS)
+                m_inc("racearr_downloads_reached_target_total", {"instance": inst["kind"]})
             cand.append({"rec": rec, "hash": dlid, "t": t, "speed": speed,
                          "progress": progress, "age": now - st["first_seen"],
                          "max_speed": st["max_speed"], "baseline": dlid in BASELINE_DL})
@@ -433,7 +540,9 @@ def process_instance(inst, qbt):
                 with _lock:
                     STATS["races_started"] += 1
                     STATS["candidates_grabbed"] += grabbed
+                m_inc("racearr_races_started_total", {"instance": inst["kind"]})
                 if grabbed:
+                    m_inc("racearr_candidates_grabbed_total", {"instance": inst["kind"]}, grabbed)
                     RACE[gkey] = {"start": now}
                     active_races += 1
                 else:
@@ -458,6 +567,10 @@ def process_instance(inst, qbt):
                     if c["hash"] != winner["hash"]:
                         kill_queue_record(inst, c["rec"], c["t"])
                 if len(cand) <= 1 or timed_out:
+                    m_observe("racearr_race_winner_mbps", fastest / MB, MBPS_BUCKETS)
+                    m_inc("racearr_race_outcomes_total",
+                          {"instance": inst["kind"],
+                           "outcome": "won_target" if have_winner else "kept_below_target"})
                     RACE.pop(gkey, None)
                     COOLDOWN[gkey] = now + RACE_COOLDOWN_SECONDS
 
@@ -469,7 +582,13 @@ def process_instance(inst, qbt):
             continue
         iid = int(gkey.split(":", 1)[1])
         if iid in queued_items:
-            PICKUP.pop(gkey, None)
+            ps = PICKUP.pop(gkey, None)
+            if ps:
+                lat = now - ps["first_seen"]
+                m_observe("racearr_pickup_latency_seconds", lat, PICKUP_BUCKETS)
+                m_inc("racearr_pickups_total",
+                      {"instance": inst["kind"],
+                       "result": "in_sla" if lat <= PICKUP_SLA_SECONDS else "breached"})
             continue
         ps = PICKUP.setdefault(gkey, {"first_seen": now, "alerted": False})
         if not ps["alerted"] and now - ps["first_seen"] >= PICKUP_SLA_SECONDS:
@@ -499,7 +618,6 @@ def prime_baseline():
 
 
 def loop():
-    qbit_login()
     prime_baseline()
     while True:
         t0 = time.time()
@@ -530,6 +648,13 @@ class _Health(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"ok" if fresh else b"stale")
             return
+        if self.path.startswith("/metrics"):
+            body = render_metrics()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         with _lock:
             body = json.dumps({**STATS, "dry_run": DRY_RUN, "instances": [i["kind"] for i in INSTANCES],
                                "active_races": len(RACE)}, default=str).encode()
@@ -547,6 +672,8 @@ def main():
              "target=%.1fMB/s max/item=%d protect_private=%s",
              DRY_RUN, [i["kind"] for i in INSTANCES], PICKUP_SLA_SECONDS, SPEED_SLA_MBPS,
              SPEED_SLA_SECONDS, RACE_TARGET_MBPS, MAX_PER_ITEM, PROTECT_PRIVATE)
+    metrics_init()
+    qbit_login()
     threading.Thread(target=loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", HEALTH_PORT), _Health).serve_forever()
 

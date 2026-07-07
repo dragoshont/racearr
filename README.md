@@ -166,12 +166,18 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `PRIVATE_INDEXERS` | — | Comma-separated indexer names to treat as private |
 | `PRIVATE_TRACKER_DOMAINS` | — | Comma-separated tracker domains to treat as private |
 | `INCIDENT_WEBHOOK_URL` | — | POST `{"text": ...}` on each incident (Discord/ntfy/etc.) |
-| `HEALTH_PORT` | `9797` | Port for `/healthz` and `/status` |
+| `HEALTH_PORT` | `9797` | Port for `/healthz`, `/status`, and `/metrics` |
 | `LOG_LEVEL` | `INFO` | `INFO` / `DEBUG` |
 
 ### Observability
 - `GET /healthz` → `200 ok` (liveness).
 - `GET /status` → JSON counters: `loops`, `incidents`, `races_started`, `candidates_grabbed`, `losers_killed`, `active_races`, `dry_run`.
+- `GET /metrics` → **Prometheus** exposition on the same `HEALTH_PORT` (stdlib-only, no deps). Scrape `:9797/metrics`. Series:
+  - gauges: `racearr_up`, `racearr_dry_run`, `racearr_active_races`, `racearr_managed_downloads`, `racearr_loops_total`, `racearr_last_loop_age_seconds`
+  - counters: `racearr_incidents_total{type}`, `racearr_pickups_total{instance,result}`, `racearr_races_started_total{instance}`, `racearr_candidates_grabbed_total{instance}`, `racearr_losers_killed_total{instance}`, `racearr_downloads_reached_target_total{instance}`, `racearr_race_outcomes_total{instance,outcome}`
+  - histograms: `racearr_pickup_latency_seconds`, `racearr_time_to_target_seconds`, `racearr_race_winner_mbps`
+  - Known label sets are pre-registered at `0`, so dashboards render clean zeros before the first event fires.
+- A starter Grafana dashboard ships in [`deploy/grafana/racearr-dashboard.json`](deploy/grafana/racearr-dashboard.json) (expects a Prometheus datasource `uid: prometheus`; the logs panel expects a Loki datasource `uid: loki`).
 - Every incident and every GRAB/KILL is logged.
 
 ---
