@@ -38,6 +38,19 @@
             }
         }
     </div>
+    <MudDivider Class="my-3" />
+    <MudStack Row AlignItems="AlignItems.Start" Spacing="2" Class="flex-nowrap">
+        <MudIcon Icon="@Icons.Material.Filled.CleaningServices" Size="Size.Small" Color="Color.Secondary" Class="mt-1" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary" Style="max-width:760px">
+            racearr is the <strong>fast lane</strong> — it only races new pickups and baseline-protects
+            everything already downloading. It pairs with a <strong>slow queue cleaner</strong> like
+            <MudLink Href="https://github.com/Cleanuparr/Cleanuparr" Target="_blank" Typo="Typo.caption">cleanuparr</MudLink>,
+            which on a longer strike cadence removes malware, failed imports and long-dead downloads
+            across the whole queue and asks the *arr for a replacement — which racearr then races here.
+            They don't overlap: racearr acts in seconds, the cleaner in minutes, so each only touches
+            what the other isn't handling.
+        </MudText>
+    </MudStack>
 </MudPaper>
 
 <MudText Typo="Typo.subtitle1" Class="mb-3">Live counters</MudText>

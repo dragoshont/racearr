@@ -32,6 +32,37 @@ When you add something to your watchlist, the pipeline usually crawls for one of
 
 `racearr` turns "hours, and I had to intervene" into "minutes, hands-off".
 
+## Works alongside a queue cleaner — no overlap
+
+The \*arr community rightly warns against running two tools that fight over the
+same queue. `racearr` is deliberately **not** a queue cleaner: it is the **fast
+lane**, and it composes cleanly with a **slow janitor** like
+[cleanuparr](https://github.com/Cleanuparr/Cleanuparr) rather than duplicating it.
+
+| | **racearr** (fast lane) | **cleanuparr** (slow janitor) |
+|---|---|---|
+| Watches | *new* pickups only (baseline-protects everything present at startup) | the *whole* queue + the missing backlog |
+| Reacts in | **seconds** — parallel racing | **minutes** — ≥ 3 strikes over a ~15-min cadence |
+| Removes | losing race alternates + obvious fakes | malware, failed imports, long-dead downloads, finished seeds |
+
+They don't collide because they act on **different time scales**: racearr always
+finishes a race (< 3 min) long before a cleaner accumulates enough strikes
+(≈ 45 min) to touch anything — so the cleaner only ever acts on downloads racearr
+is *not* racing (post-race degradation, plus the backlog racearr ignores).
+
+**The handoff** — *"if a cleaner finds a bad actor, racearr replaces it fast"* —
+needs no extra wiring; it flows through the \*arr:
+
+```mermaid
+flowchart LR
+    A[cleanuparr finds a bad actor<br/>malware / failed import / long-dead] --> B[removes + blocklists it,<br/>asks the arr to search a replacement]
+    B --> C[arr grabs a different release<br/>= a new download]
+    C --> D[racearr races it to your<br/>library, fast]
+```
+
+If the cleaner can't trigger the search, the item simply goes back to *wanted*
+and racearr's **pickup SLA** searches + races it anyway.
+
 ## What it does — the SLA contract
 
 | SLA | Trigger | Action |
