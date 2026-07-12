@@ -1,24 +1,102 @@
 @page "/"
 @inject RaceEngineState State
 @inject RacearrOptions Options
+@inject InsightsService InsightsSvc
 @implements IDisposable
 
 <PageTitle>racearr — status</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4">Status</MudText>
+<MudText Typo="Typo.h5" Class="mb-1">Status</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-5">Everything racearr is doing to keep your library fast.</MudText>
 
+<style>
+    .impact-hero { background: linear-gradient(135deg, rgba(80,116,181,.20), rgba(95,181,172,.10)); border: 1px solid var(--mud-palette-lines-default); border-radius: 14px; }
+    .brand-logo { width: 26px; height: 26px; object-fit: contain; display: block; }
+    .brand-logo-sm { width: 20px; height: 20px; object-fit: contain; }
+    .stage-card { min-width: 168px; max-width: 220px; flex: 0 0 auto; border: 1px solid var(--mud-palette-lines-default); border-radius: 12px; transition: border-color .15s ease, transform .15s ease; }
+    .stage-card:hover { border-color: var(--mud-palette-primary); transform: translateY(-2px); }
+    .stage-logos { display: flex; gap: 6px; align-items: center; justify-content: center; height: 34px; }
+    .flow-scroll { overflow-x: auto; padding-bottom: 4px; }
+    .impact-value { font-size: 2rem; font-weight: 600; line-height: 1.1; }
+</style>
+
+@* ---- Impact hero: the "what racearr does for you" banner ---- *@
+<MudPaper Class="impact-hero pa-5 mb-6" Elevation="0">
+    <MudStack Row="true" Class="flex-wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Spacing="4">
+        <div style="max-width:520px">
+            <MudText Typo="Typo.h5" Class="mb-1">Your library, on the fast lane</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                racearr watches every new download and, the moment one crawls below
+                <strong>@Options.SpeedSlaMbps.ToString("0.#") MB/s</strong> for @Human(Options.SpeedSlaSeconds),
+                grabs a faster copy and keeps the one that hits <strong>≥ @Options.RaceTargetMbps.ToString("0.#") MB/s</strong>.
+            </MudText>
+        </div>
+        <MudStack Row="true" Class="flex-wrap" Spacing="6">
+            @foreach (var h in HeroStats())
+            {
+                <div>
+                    <div class="impact-value">@h.Value</div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@h.Label</MudText>
+                </div>
+            }
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@* ---- Plex refresh health: detect + guide the fix for the arr → Plex connection ---- *@
+@{ var plexIssues = _ins.PlexIssues; var plexHealthy = _ins.PlexHealthy; }
+@if (plexHealthy.Count > 0 && plexIssues.Count == 0)
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Dense="true" Class="mb-6">
+        Plex is refreshed on import — @string.Join(" & ", plexHealthy.Select(p => Title(p.Instance))) are wired up correctly.
+    </MudAlert>
+}
+else if (plexIssues.Count > 0)
+{
+    <MudPaper Class="pa-4 mb-6" Elevation="1" Style="border-left:3px solid var(--mud-palette-warning)">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" />
+            <MudText Typo="Typo.subtitle1">Plex isn't being refreshed automatically</MudText>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            When @string.Join(" and ", plexIssues.Select(p => Title(p.Instance))) import a title, Plex isn't told to scan it,
+            so new movies and episodes can take a while to show up. One-time fix:
+        </MudText>
+        @foreach (var p in plexIssues)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">• <strong>@Title(p.Instance)</strong> — @p.Detail</MudText>
+        }
+        <MudStack Spacing="1" Class="mt-3 mb-1">
+            <MudText Typo="Typo.body2">1. Open <strong>@string.Join(" / ", plexIssues.Select(p => Title(p.Instance)))</strong> → Settings → Connect.</MudText>
+            <MudText Typo="Typo.body2">2. Add or open the <strong>Plex Media Server</strong> connection.</MudText>
+            <MudText Typo="Typo.body2">3. Enter your Plex host + port and authenticate.</MudText>
+            <MudText Typo="Typo.body2">4. Enable <strong>On Import</strong> and <strong>On Upgrade</strong>, then Save.</MudText>
+        </MudStack>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-2">
+            @RecheckButton
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Done it? Re-check and this turns green.</MudText>
+        </MudStack>
+    </MudPaper>
+}
+
+@* ---- How a title flows: real service logos + the enforced time budgets ---- *@
 <MudPaper Class="pa-4 mb-6" Elevation="1">
     <MudText Typo="Typo.subtitle1">How a title flows</MudText>
     <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
         Each arrow is a time budget racearr enforces between stages.
     </MudText>
-    <div class="d-flex flex-wrap align-center" style="gap:8px">
+    <div class="d-flex flex-wrap align-center flow-scroll" style="gap:8px">
         @for (var i = 0; i < Stages.Length; i++)
         {
             var s = Stages[i];
-            <MudPaper Outlined="true" Class="pa-3" Style="min-width:150px;max-width:210px;flex:0 0 auto">
+            <MudPaper Class="stage-card pa-3" Elevation="0">
                 <MudStack AlignItems="AlignItems.Center" Spacing="1">
-                    <MudIcon Icon="@s.Icon" Size="Size.Large" Color="Color.Primary" />
+                    <div class="stage-logos">
+                        @foreach (var b in s.Brands)
+                        {
+                            <img src="@($"/brands/{b}.svg")" alt="@b" class="brand-logo" />
+                        }
+                    </div>
                     <MudText Typo="Typo.subtitle2" Align="Align.Center">@s.Title</MudText>
                     <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">@s.Subtitle</MudText>
                     @if (s.Badge is not null)
@@ -30,7 +108,7 @@
             @if (i < Connectors.Length)
             {
                 var c = Connectors[i];
-                <MudStack AlignItems="AlignItems.Center" Spacing="0" Style="min-width:130px;flex:0 0 auto">
+                <MudStack AlignItems="AlignItems.Center" Spacing="0" Style="min-width:120px;flex:0 0 auto">
                     <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">@c.Label</MudText>
                     <MudIcon Icon="@Icons.Material.Filled.ArrowRightAlt" />
                     <MudText Typo="Typo.caption" Align="Align.Center" Style="color:var(--mud-palette-warning)">@c.Budget</MudText>
@@ -39,7 +117,7 @@
         }
     </div>
     <MudDivider Class="my-3" />
-    <MudStack Row AlignItems="AlignItems.Start" Spacing="2" Class="flex-nowrap">
+    <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2" Class="flex-nowrap">
         <MudIcon Icon="@Icons.Material.Filled.CleaningServices" Size="Size.Small" Color="Color.Secondary" Class="mt-1" />
         <MudText Typo="Typo.caption" Class="mud-text-secondary" Style="max-width:760px">
             racearr is the <strong>fast lane</strong> — it only races new pickups and baseline-protects
@@ -53,14 +131,42 @@
     </MudStack>
 </MudPaper>
 
-<MudText Typo="Typo.subtitle1" Class="mb-3">Live counters</MudText>
-<MudGrid Spacing="3">
-    @foreach (var card in Cards())
+@* ---- Impact: the value racearr delivers ---- *@
+<MudText Typo="Typo.subtitle1" Class="mb-3">Impact</MudText>
+<MudGrid Spacing="3" Class="mb-6">
+    @foreach (var card in ImpactCards())
     {
-        <MudItem xs="12" sm="6" md="4">
-            <MudCard Elevation="1">
+        <MudItem xs="6" sm="4" md="3">
+            <MudCard Elevation="1" Style="height:100%">
                 <MudCardContent>
-                    <MudStack Row AlignItems="AlignItems.Center" Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        @if (card.Brand is not null)
+                        {
+                            <img src="@card.Brand" alt="" class="brand-logo-sm" />
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@card.Icon" Color="@card.Color" Size="Size.Small" />
+                        }
+                        <MudText Typo="Typo.body2">@card.Label</MudText>
+                    </MudStack>
+                    <MudText Typo="Typo.h4" Class="mt-2">@card.Value</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@card.Hint</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    }
+</MudGrid>
+
+@* ---- Engine: operational heartbeat ---- *@
+<MudText Typo="Typo.subtitle1" Class="mb-3">Engine</MudText>
+<MudGrid Spacing="3">
+    @foreach (var card in EngineCards())
+    {
+        <MudItem xs="6" sm="4" md="3">
+            <MudCard Elevation="1" Style="height:100%">
+                <MudCardContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         <MudIcon Icon="@card.Icon" Color="@card.Color" Size="Size.Small" />
                         <MudText Typo="Typo.body2">@card.Label</MudText>
                     </MudStack>
@@ -72,51 +178,125 @@
     }
 </MudGrid>
 
+@if (_snap.Downloads.Count > 0)
+{
+    <MudText Typo="Typo.subtitle1" Class="mt-6 mb-3">Active downloads</MudText>
+    <MudStack Spacing="2">
+        @foreach (var d in _snap.Downloads)
+        {
+            <MudPaper Elevation="1" Class="pa-3">
+                <MudStack Row Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-1">
+                    <MudText Typo="Typo.body2" Style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@d.Name</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">@Speed(d.SpeedBytesPerSec) · @EtaLabel(d.EtaSeconds)</MudText>
+                </MudStack>
+                <MudProgressLinear Color="Color.Primary" Value="@(d.Progress * 100)" Class="my-1" />
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@((d.Progress * 100).ToString("0.#"))% · @d.State</MudText>
+            </MudPaper>
+        }
+    </MudStack>
+}
+
 @code {
     private StatusSnapshot _snap = default!;
+    private Insights _ins = Insights.Empty;
     private Timer? _timer;
+    private bool _rechecking;
 
     protected override void OnInitialized()
     {
         _snap = State.Snapshot();
+        _ins = InsightsSvc.Current;
         _timer = new Timer(_ => InvokeAsync(() =>
         {
             _snap = State.Snapshot();
+            _ins = InsightsSvc.Current;
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+
+        // First visit before the 5-minute background refresher has run: populate the cache once now.
+        if (_ins.UpdatedUtc is null)
+            _ = RefreshInsightsAsync();
     }
 
-    private record Stage(string Icon, string Title, string Subtitle, string? Badge);
+    private Task Recheck() => RefreshInsightsAsync();
+
+    private async Task RefreshInsightsAsync()
+    {
+        _rechecking = true;
+        try { await InsightsSvc.RefreshAsync(CancellationToken.None); }
+        finally
+        {
+            _ins = InsightsSvc.Current;
+            _rechecking = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private RenderFragment RecheckButton => @<MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_rechecking" OnClick="Recheck">@(_rechecking ? "Checking…" : "Re-check")</MudButton>;
+
+    private static string Title(string instance) => instance switch
+    {
+        "radarr" => "Radarr",
+        "sonarr" => "Sonarr",
+        _ => instance.Length == 0 ? instance : char.ToUpperInvariant(instance[0]) + instance[1..],
+    };
+
+    private record Stage(string[] Brands, string Title, string Subtitle, string? Badge);
     private record Conn(string Label, string Budget);
+    private record Stat(string Label, string Value, string Hint, string? Brand, string Icon, Color Color);
 
     private Stage[] Stages =>
     [
-        new(Icons.Material.Filled.Bookmark, "Requested", "Plex Watchlist · Seerr", null),
-        new(Icons.Material.Filled.Movie, "Grabbed", "Radarr · Sonarr", null),
-        new(Icons.Material.Filled.Bolt, "Downloading & racing", "qBittorrent",
+        new(["plex", "overseerr"], "Requested", "Plex Watchlist · Seerr", null),
+        new(["radarr", "sonarr"], "Grabbed", "Radarr · Sonarr", null),
+        new(["qbittorrent"], "Downloading & racing", "qBittorrent",
             _snap.ActiveRaces > 0 ? $"{_snap.ActiveRaces} racing now" : null),
-        new(Icons.Material.Filled.VideoLibrary, "In your library", "imported by *arr", null),
+        new(["plex"], "In your library", "Ready in Plex", null),
     ];
 
     private Conn[] Connectors =>
     [
         new("must start within", Human(Options.PickupSlaSeconds)),
-        new("if slower than", $"{Options.SpeedSlaMbps:0.#} MB/s for {Human(Options.SpeedSlaSeconds)} → race"),
-        new("keep the one at", $"≥ {Options.RaceTargetMbps:0.#} MB/s, drop the rest"),
+        new("if slower than", $"{Options.SpeedSlaMbps:0.#} MB/s for {Human(Options.SpeedSlaSeconds)}"),
+        new("keep the one at", $"≥ {Options.RaceTargetMbps:0.#} MB/s"),
     ];
 
-    private IEnumerable<(string Label, string Value, string Hint, string Icon, Color Color)> Cards() =>
+    private IEnumerable<(string Label, string Value)> HeroStats() =>
     [
-        ("Engine loops", _snap.Loops.ToString("N0"), $"heartbeat · last check {_snap.LastLoopAgeSeconds:0.#}s ago", Icons.Material.Filled.Loop, Color.Info),
-        ("Downloads managed", _snap.ManagedDownloads.ToString("N0"), "started since racearr came up", Icons.Material.Filled.Download, Color.Primary),
-        ("Races run", _snap.RacesStarted.ToString("N0"), $"{_snap.CandidatesGrabbed:N0} alternates grabbed", Icons.Material.Filled.DirectionsRun, Color.Primary),
-        ("Slow copies dropped", _snap.LosersKilled.ToString("N0"), "losing alternates removed", Icons.Material.Filled.Block, Color.Default),
-        ("Incidents", _snap.Incidents.ToString("N0"), "SLA breaches raised", Icons.Material.Filled.Warning, _snap.Incidents > 0 ? Color.Error : Color.Success),
-        ("Racing now", _snap.ActiveRaces.ToString("N0"), "races in progress", Icons.Material.Filled.FlagCircle, Color.Default),
+        ("Movies", _ins.Movies.ToString("N0")),
+        ("Shows", _ins.Shows.ToString("N0")),
+        ("Rescued", _snap.RacesStarted.ToString("N0")),
+        ("Swapped", _snap.LosersKilled.ToString("N0")),
+    ];
+
+    private IEnumerable<Stat> ImpactCards() =>
+    [
+        new("Movies", _ins.Movies.ToString("N0"), $"{_ins.MoviesDownloaded:N0} downloaded", "/brands/radarr.svg", "", Color.Default),
+        new("Shows", _ins.Shows.ToString("N0"), $"{_ins.ShowsDownloaded:N0} with files", "/brands/sonarr.svg", "", Color.Default),
+        new("Downloads rescued", _snap.RacesStarted.ToString("N0"), "slow torrents raced to a faster copy", null, Icons.Material.Filled.DirectionsRun, Color.Primary),
+        new("Slow copies swapped", _snap.LosersKilled.ToString("N0"), "losing copies removed", null, Icons.Material.Filled.SwapHoriz, Color.Primary),
+        new("Alternates grabbed", _snap.CandidatesGrabbed.ToString("N0"), "faster candidates pulled in", null, Icons.Material.Filled.Download, Color.Info),
+    ];
+
+    private IEnumerable<Stat> EngineCards() =>
+    [
+        new("Engine loops", _snap.Loops.ToString("N0"), $"heartbeat · last check {_snap.LastLoopAgeSeconds:0.#}s ago", null, Icons.Material.Filled.Loop, Color.Info),
+        new("Downloads managed", _snap.ManagedDownloads.ToString("N0"), "active since racearr came up", null, Icons.Material.Filled.PlaylistAddCheck, Color.Default),
+        new("Racing now", _snap.ActiveRaces.ToString("N0"), "races in progress", null, Icons.Material.Filled.FlagCircle, Color.Default),
+        new("Incidents", _snap.Incidents.ToString("N0"), "SLA breaches raised", null, Icons.Material.Filled.Warning, _snap.Incidents > 0 ? Color.Error : Color.Success),
     ];
 
     private static string Human(int seconds)
         => seconds >= 60 && seconds % 60 == 0 ? $"{seconds / 60} min" : $"{seconds}s";
+
+    private static string Speed(double bytesPerSec)
+        => bytesPerSec <= 0 ? "—" : $"{bytesPerSec / (1024 * 1024):0.0} MB/s";
+
+    private static string EtaLabel(long seconds)
+        => seconds is <= 0 or >= 8_640_000 ? "—"
+            : seconds >= 3600 ? $"{seconds / 3600}h {(seconds % 3600) / 60}m"
+            : seconds >= 60 ? $"{seconds / 60}m {seconds % 60}s"
+            : $"{seconds}s";
 
     public void Dispose() => _timer?.Dispose();
 }

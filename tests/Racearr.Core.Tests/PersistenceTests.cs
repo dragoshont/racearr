@@ -234,4 +234,28 @@ public class PersistenceTests
 
         Assert.Equal(["b", "c", "a"], recent.Select(e => e.Kind));
     }
+
+    [Fact]
+    public void EngineStateStore_UpsertsLoadsAndDeletes()
+    {
+        using var factory = new InMemoryFactory();
+        var store = new DbEngineStateStore(factory);
+        var state = new EngineItemState
+        {
+            Key = "sonarr:7142", Instance = "sonarr", ItemId = 7142,
+            PickupFirstSeenUtc = DateTimeOffset.UtcNow.AddMinutes(-5), RetryCount = 2,
+            NextRetryUtc = DateTimeOffset.UtcNow.AddMinutes(10), LastIncidentType = "stalled_dead",
+        };
+
+        store.Upsert(state);
+        state.RetryCount = 3;
+        store.Upsert(state);
+
+        var loaded = Assert.Single(store.Load());
+        Assert.Equal(3, loaded.RetryCount);
+        Assert.Equal("stalled_dead", loaded.LastIncidentType);
+
+        store.Delete(state.Key);
+        Assert.Empty(store.Load());
+    }
 }

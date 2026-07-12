@@ -30,48 +30,82 @@ public sealed class ArrClient(HttpClient http) : IArrClient
     public async Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance inst, CancellationToken ct)
     {
         var query = inst.Kind == ArrKind.Radarr
-            ? "queue?page=1&pageSize=400&includeUnknownMovieItems=false"
-            : "queue?page=1&pageSize=400";
-        var root = await GetJsonAsync(inst, query, ct);
+            ? "queue?includeUnknownMovieItems=false"
+            : "queue?includeUnknownSeriesItems=true";
+        var records = await GetPagedRecordsAsync(inst, query, 400, ct);
         var list = new List<QueueRecord>();
-        if (root.TryGetProperty("records", out var recs) && recs.ValueKind == JsonValueKind.Array)
+        foreach (var r in records)
         {
-            foreach (var r in recs.EnumerateArray())
+            list.Add(new QueueRecord
             {
-                list.Add(new QueueRecord
-                {
-                    Id = GetInt(r, "id") ?? 0,
-                    ItemId = GetInt(r, inst.ItemField),
-                    DownloadId = (GetStr(r, "downloadId") ?? "").ToLowerInvariant(),
-                    Title = GetStr(r, "title") ?? "",
-                    Size = GetLong(r, "size") ?? 0,
-                    SizeLeft = GetLong(r, "sizeleft") ?? 0,
-                    TrackedDownloadState = GetStr(r, "trackedDownloadState"),
-                    TrackedDownloadStatus = GetStr(r, "trackedDownloadStatus"),
-                });
-            }
+                Id = GetInt(r, "id") ?? 0,
+                ItemId = GetInt(r, inst.ItemField),
+                DownloadId = (GetStr(r, "downloadId") ?? "").ToLowerInvariant(),
+                Title = GetStr(r, "title") ?? "",
+                Indexer = GetStr(r, "indexer") ?? "",
+                Size = GetLong(r, "size") ?? 0,
+                SizeLeft = GetLong(r, "sizeleft") ?? 0,
+                TrackedDownloadState = GetStr(r, "trackedDownloadState"),
+                TrackedDownloadStatus = GetStr(r, "trackedDownloadStatus"),
+            });
         }
         return list;
     }
 
     public async Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance inst, CancellationToken ct)
     {
-        var root = await GetJsonAsync(inst,
-            "wanted/missing?page=1&pageSize=200&sortDirection=descending&sortKey=id&monitored=true", ct);
+        var records = await GetPagedRecordsAsync(inst,
+            "wanted/missing?sortDirection=descending&sortKey=id&monitored=true", 200, ct);
         var list = new List<WantedItem>();
-        if (root.TryGetProperty("records", out var recs) && recs.ValueKind == JsonValueKind.Array)
+        foreach (var r in records)
         {
-            foreach (var r in recs.EnumerateArray())
-            {
-                var id = GetInt(r, "id");
-                if (id is null) continue;
-                var title = GetStr(r, "title")
-                    ?? (r.TryGetProperty("movie", out var m) ? GetStr(m, "title") : null)
-                    ?? "?";
-                list.Add(new WantedItem(id.Value, title));
-            }
+            var id = GetInt(r, "id")
+                ?? throw new InvalidDataException("Paged *arr response contained a record without an integer id.");
+            var title = GetStr(r, "title")
+                ?? (r.TryGetProperty("movie", out var m) ? GetStr(m, "title") : null)
+                ?? "?";
+            list.Add(new WantedItem(id, title));
         }
         return list;
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> GetPagedRecordsAsync(
+        ArrInstance inst, string pathAndQuery, int pageSize, CancellationToken ct)
+    {
+        var records = new List<JsonElement>();
+        var ids = new HashSet<int>();
+        int? expectedTotal = null;
+
+        for (var page = 1; ; page++)
+        {
+            var root = await GetJsonAsync(inst, $"{pathAndQuery}&page={page}&pageSize={pageSize}", ct);
+            var total = GetInt(root, "totalRecords")
+                ?? throw new InvalidDataException("Paged *arr response did not contain totalRecords.");
+            expectedTotal ??= total;
+            if (total != expectedTotal)
+                throw new InvalidDataException("Paged *arr response changed totalRecords while it was being read.");
+            if (!root.TryGetProperty("records", out var pageRecords) || pageRecords.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Paged *arr response did not contain a records array.");
+
+            var rawCount = 0;
+            var added = 0;
+            foreach (var record in pageRecords.EnumerateArray())
+            {
+                rawCount++;
+                var id = GetInt(record, "id")
+                    ?? throw new InvalidDataException("Paged *arr response contained a record without an integer id.");
+                if (ids.Add(id))
+                {
+                    records.Add(record.Clone());
+                    added++;
+                }
+            }
+
+            if (records.Count == expectedTotal) return records;
+            if (records.Count > expectedTotal || rawCount == 0 || added == 0 || rawCount < pageSize)
+                throw new InvalidDataException(
+                    $"Paged *arr response was incomplete: received {records.Count} of {expectedTotal} unique records.");
+        }
     }
 
     public async Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance inst, int itemId, CancellationToken ct)
@@ -115,30 +149,110 @@ public sealed class ArrClient(HttpClient http) : IArrClient
         return list;
     }
 
-    public async Task ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct)
+    public async Task<ArrMutationResult> ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct)
     {
         var body = new Dictionary<string, object> { ["name"] = inst.SearchCommand, [inst.SearchIdsField] = new[] { itemId } };
         var req = Build(HttpMethod.Post, inst, "command");
         req.Content = JsonContent.Create(body);
         using var resp = await http.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
+        return new ArrMutationResult(resp.IsSuccessStatusCode, (int)resp.StatusCode);
     }
 
-    public async Task<bool> GrabAsync(ArrInstance inst, Release release, CancellationToken ct)
+    public async Task<GrabResult> GrabAsync(ArrInstance inst, int itemId, Release release, CancellationToken ct)
     {
         var body = new Dictionary<string, object?> { ["guid"] = release.Guid, ["indexerId"] = release.IndexerId };
-        var req = Build(HttpMethod.Post, inst, "release");
+        using var req = Build(HttpMethod.Post, inst, "release");
         req.Content = JsonContent.Create(body);
         using var resp = await http.SendAsync(req, ct);
-        return resp.IsSuccessStatusCode;
+        if (resp.IsSuccessStatusCode) return new GrabResult(GrabOutcome.Accepted, (int)resp.StatusCode);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            return new GrabResult(GrabOutcome.AlreadyPresent, (int)resp.StatusCode);
+
+        // Sonarr currently wraps qBittorrent's duplicate-add 409 as a generic 500. Reconcile against
+        // the live queue before classifying the response; never infer "duplicate" from the 500 alone.
+        try
+        {
+            var queued = await GetQueueAsync(inst, ct);
+            var alreadyPresent = queued.Where(q => q.ItemId == itemId).Any(q =>
+                (!string.IsNullOrEmpty(release.InfoHash) &&
+                 string.Equals(q.DownloadId, release.InfoHash, StringComparison.OrdinalIgnoreCase)) ||
+                (string.IsNullOrEmpty(release.InfoHash) && RaceDecisions.IsSameRelease(release, q)));
+            if (alreadyPresent) return new GrabResult(GrabOutcome.AlreadyPresent, (int)resp.StatusCode);
+        }
+        catch
+        {
+            // Preserve the original classified failure when reconciliation itself is unavailable.
+        }
+
+        var outcome = resp.StatusCode is System.Net.HttpStatusCode.BadRequest or
+            System.Net.HttpStatusCode.NotAcceptable or System.Net.HttpStatusCode.UnprocessableEntity
+            ? GrabOutcome.Rejected
+            : GrabOutcome.Failed;
+        return new GrabResult(outcome, (int)resp.StatusCode);
     }
 
-    public async Task DeleteQueueAsync(ArrInstance inst, int recordId, bool removeFromClient, bool blocklist, CancellationToken ct)
+    public async Task<ArrMutationResult> DeleteQueueAsync(ArrInstance inst, int recordId, bool removeFromClient, bool blocklist, CancellationToken ct)
     {
         var query = $"queue/{recordId}?removeFromClient={(removeFromClient ? "true" : "false")}" +
                     $"&blocklist={(blocklist ? "true" : "false")}&skipRedownload=true";
         using var resp = await http.SendAsync(Build(HttpMethod.Delete, inst, query), ct);
-        resp.EnsureSuccessStatusCode();
+        return new ArrMutationResult(resp.IsSuccessStatusCode, (int)resp.StatusCode);
+    }
+
+    public async Task<LibraryStats> GetLibraryStatsAsync(ArrInstance inst, CancellationToken ct)
+    {
+        // Radarr /movie and Sonarr /series each return the whole library as one array.
+        var root = await GetJsonAsync(inst, inst.Kind == ArrKind.Radarr ? "movie" : "series", ct);
+        var total = 0;
+        var downloaded = 0;
+        if (root.ValueKind == JsonValueKind.Array)
+            foreach (var e in root.EnumerateArray())
+            {
+                total++;
+                if (inst.Kind == ArrKind.Radarr)
+                {
+                    if (GetBool(e, "hasFile") == true) downloaded++;
+                }
+                else if (e.TryGetProperty("statistics", out var st) && (GetInt(st, "episodeFileCount") ?? 0) > 0)
+                {
+                    downloaded++;
+                }
+            }
+        return new LibraryStats(inst.Name, total, downloaded);
+    }
+
+    public async Task<PlexLinkStatus> GetPlexLinkStatusAsync(ArrInstance inst, CancellationToken ct)
+    {
+        JsonElement root;
+        try
+        {
+            root = await GetJsonAsync(inst, "notification", ct);
+        }
+        catch (Exception ex)
+        {
+            return new PlexLinkStatus(inst.Name, Reachable: false, Configured: false, NotifiesOnImport: false, ex.Message);
+        }
+
+        if (root.ValueKind == JsonValueKind.Array)
+            foreach (var n in root.EnumerateArray())
+            {
+                if (!string.Equals(GetStr(n, "implementation"), "PlexServer", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Plex refreshes on import (onDownload) or on a quality upgrade (onUpgrade).
+                var onImport = (GetBool(n, "onDownload") ?? false) || (GetBool(n, "onUpgrade") ?? false);
+                string? host = null;
+                if (n.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Array)
+                    foreach (var f in fields.EnumerateArray())
+                        if (string.Equals(GetStr(f, "name"), "host", StringComparison.OrdinalIgnoreCase))
+                            host = GetStr(f, "value");
+                var where = host is null ? "Plex" : $"Plex ({host})";
+                var detail = onImport
+                    ? $"{where} is refreshed on import."
+                    : $"{where} connection exists but its On Import / On Upgrade events are off.";
+                return new PlexLinkStatus(inst.Name, true, true, onImport, detail);
+            }
+
+        return new PlexLinkStatus(inst.Name, true, false, false, "No Plex Media Server connection is configured.");
     }
 
     private static string? GetStr(JsonElement e, string name)

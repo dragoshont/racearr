@@ -97,6 +97,8 @@ builder.Services.AddDbContextFactory<RacearrDbContext>(o => o.UseSqlite(connecti
 builder.Services.AddSingleton<ISettingsStore, DbSettingsStore>();
 builder.Services.AddSingleton<IConnectionStore, DbConnectionStore>();
 builder.Services.AddSingleton<IEventSink, DbEventSink>();
+builder.Services.AddSingleton<IEngineStateStore, DbEngineStateStore>();
+builder.Services.AddSingleton<IEngineCounterStore, DbEngineCounterStore>();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(new RaceEngineState(options.DryRun));
 builder.Services.AddSingleton(_ => new RacearrMetrics(Metrics.DefaultFactory));
@@ -106,6 +108,8 @@ builder.Services.AddHttpClient<IQbitClient, QbitClient>();
 builder.Services.AddHttpClient<IConnectionTester, ConnectionTester>();
 builder.Services.AddSingleton<RaceEngine>();
 builder.Services.AddHostedService<RaceEngineHostedService>();
+builder.Services.AddSingleton<InsightsService>();
+builder.Services.AddHostedService<InsightsRefreshService>();
 
 // Blazor Server UI (dashboard / settings / history) + its read-side history query.
 builder.Services.AddSingleton<IEventHistory, DbEventHistory>();
@@ -129,6 +133,9 @@ var app = builder.Build();
 // Publish known metric series at 0 and refresh gauges from live state on every scrape.
 var metrics = app.Services.GetRequiredService<RacearrMetrics>();
 var state = app.Services.GetRequiredService<RaceEngineState>();
+// Restore the cumulative dashboard totals persisted on the config volume so a pod restart
+// continues the counts instead of resetting them to zero.
+state.SeedCounters(app.Services.GetRequiredService<IEngineCounterStore>().Load());
 metrics.PreInitialize(options);
 Metrics.DefaultRegistry.AddBeforeCollectCallback(() => metrics.RefreshGauges(state));
 

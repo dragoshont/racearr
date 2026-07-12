@@ -43,6 +43,36 @@ public class WebInfraTests
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
     }
 
+    private sealed class PagingStubHandler(int total = 222, bool truncateLastPage = false) : HttpMessageHandler
+    {
+        public List<Uri> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!);
+            var page = request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal) ? 2 : 1;
+            var remainder = Math.Max(0, total - 200);
+            var firstId = page == 1 ? remainder + 1 : 1;
+            var count = page == 1 ? Math.Min(200, total) : Math.Max(0, remainder - (truncateLastPage ? 1 : 0));
+            var records = Enumerable.Range(0, count)
+                .Select(offset => $$"""{"id":{{firstId + offset}},"title":"Episode {{firstId + offset}}"}""");
+            var json = $$"""{"page":{{page}},"pageSize":200,"totalRecords":{{total}},"records":[{{string.Join(',', records)}}]}""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+        }
+    }
+
+    private sealed class SequenceStubHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+    {
+        private int _index;
+        public List<HttpMethod> Methods { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Methods.Add(request.Method);
+            return Task.FromResult(responses[Math.Min(_index++, responses.Length - 1)](request));
+        }
+    }
+
     private static ArrInstance RadarrInstance => new() { Kind = ArrKind.Radarr, Url = "http://arr", ApiKey = "k" };
 
     [Fact]
@@ -74,7 +104,7 @@ public class WebInfraTests
     public async Task ArrClient_MapsQueueJson_LowercasesDownloadIdAndReadsSizeleft()
     {
         const string json = """
-        { "records": [
+        { "totalRecords": 1, "records": [
           { "id": 7, "movieId": 55, "downloadId": "ABC123", "title": "Q",
             "size": 1000, "sizeleft": 250, "trackedDownloadState": "downloading", "trackedDownloadStatus": "warning" }
         ] }
@@ -90,5 +120,69 @@ public class WebInfraTests
         Assert.Equal(250, q.SizeLeft);
         Assert.Equal("downloading", q.TrackedDownloadState);
         Assert.Equal("warning", q.TrackedDownloadStatus);
+    }
+
+    [Fact]
+    public async Task ArrClient_WantedMissing_PaginatesAllRecords()
+    {
+        var handler = new PagingStubHandler();
+        var client = new ArrClient(new HttpClient(handler));
+
+        var wanted = await client.GetWantedMissingAsync(RadarrInstance, CancellationToken.None);
+
+        Assert.Equal(222, wanted.Count);
+        Assert.Equal(222, wanted.Select(item => item.Id).Distinct().Count());
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("page=1", handler.Requests[0].Query);
+        Assert.Contains("page=2", handler.Requests[1].Query);
+    }
+
+    [Fact]
+    public async Task ArrClient_WantedMissing_RejectsIncompleteFinalPage()
+    {
+        var client = new ArrClient(new HttpClient(new PagingStubHandler(truncateLastPage: true)));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.GetWantedMissingAsync(RadarrInstance, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ArrClient_MapsQueueIndexer()
+    {
+        const string json = """
+        { "totalRecords": 1, "records": [
+          { "id": 7, "movieId": 55, "downloadId": "ABC123", "title": "Q",
+            "indexer": "TorrentDownload", "size": 1000, "sizeleft": 250 }
+        ] }
+        """;
+        var client = new ArrClient(new HttpClient(new StubHandler(json)));
+
+        var record = Assert.Single(await client.GetQueueAsync(RadarrInstance, CancellationToken.None));
+
+        Assert.Equal("TorrentDownload", record.Indexer);
+    }
+
+    [Fact]
+    public async Task ArrClient_Grab_ReconcilesWrappedDuplicateAgainstQueue()
+    {
+        const string queue = """
+        { "totalRecords": 1, "records": [
+          { "id": 7, "movieId": 55, "downloadId": "", "title": "Show.S01E01 [Group]",
+            "indexer": "Indexer", "size": 1000, "sizeleft": 500 }
+        ] }
+        """;
+        var handler = new SequenceStubHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(queue) });
+        var client = new ArrClient(new HttpClient(handler));
+        var release = new Release
+        {
+            Guid = "g", IndexerId = 1, Indexer = "Indexer", Title = "Show S01E01", Size = 1000,
+        };
+
+        var result = await client.GrabAsync(RadarrInstance, 55, release, CancellationToken.None);
+
+        Assert.Equal(GrabOutcome.AlreadyPresent, result.Outcome);
+        Assert.Equal([HttpMethod.Post, HttpMethod.Get], handler.Methods);
     }
 }

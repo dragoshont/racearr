@@ -19,6 +19,7 @@ public static class SettingsCatalog
         new("RACE_CULL_AFTER_SECONDS", "Drop losers after", "Once a winner is found, slower alternates are removed after this long.", "seconds", "Racing", false),
         new("RACE_MONITOR_SECONDS", "Race time limit", "Give up racing after this long and keep the fastest so far.", "seconds", "Racing", false),
         new("RACE_COOLDOWN_SECONDS", "Cooldown between races", "Wait this long before racing the same title again.", "seconds", "Racing", false),
+        new("RACE_RETRY_MAX_SECONDS", "Maximum retry delay", "Cap the exponential back-off after repeated failed or empty release searches.", "seconds", "Racing", false),
         new("MAX_CONCURRENT_PER_ITEM", "Parallel tries per title", "How many alternates may download at once for one movie or episode.", "downloads", "Racing", false),
         new("MAX_ACTIVE_RACES", "Max races at once", "Cap on races running across everything at the same time.", "races", "Racing", false),
         new("RACE_MIN_SEEDERS", "Minimum seeders", "Only race alternate releases with at least this many seeders.", "seeders", "Racing", false),

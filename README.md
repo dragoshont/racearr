@@ -146,9 +146,14 @@ race, the item enters a `RACE_COOLDOWN_SECONDS` back-off so genuinely scarce con
 git clone https://github.com/dragoshont/racearr.git
 cd racearr
 cp .env.example .env         # fill in RADARR_API_KEY / SONARR_API_KEY (+ qBit creds if needed)
+docker compose pull          # GHCR image, linux/amd64 + linux/arm64
 docker compose up -d         # starts in DRY_RUN
 docker compose logs -f       # watch what it WOULD do
 ```
+
+Published images are available at `ghcr.io/dragoshont/racearr`. `latest` follows
+`main`; every `vX.Y.Z` release also publishes the immutable `X.Y.Z` tag, a commit-SHA
+tag, provenance, and an SBOM. Pin a semver tag or digest for production deployments.
 
 Point `RADARR_URL` / `SONARR_URL` / `QBIT_URL` at your services (defaults assume the
 container can reach them as `radarr`, `sonarr`, `qbittorrent`). If your \*arr stack is a
@@ -193,6 +198,7 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `RACE_CULL_AFTER_SECONDS` | `60` | Earliest a clear winner may end a race |
 | `RACE_MONITOR_SECONDS` | `180` | Hard cap: keep the fastest, kill the rest |
 | `RACE_COOLDOWN_SECONDS` | `600` | Back-off before re-racing the same item |
+| `RACE_RETRY_MAX_SECONDS` | `21600` | Maximum exponential retry delay after empty/failed attempts |
 | `MAX_CONCURRENT_PER_ITEM` | `4` | Max simultaneous candidates per item |
 | `MAX_ACTIVE_RACES` | `6` | Global cap on concurrent races per instance |
 | `RACE_MIN_SEEDERS` | `3` | Minimum seeders for a race candidate |
@@ -208,10 +214,10 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 
 ### Observability
 - `GET /healthz` → `200 ok` (liveness).
-- `GET /status` → JSON counters: `loops`, `incidents`, `races_started`, `candidates_grabbed`, `losers_killed`, `active_races`, `dry_run`.
+- `GET /status` → JSON counters: `loops`, `incidents`, `races_started`, `candidates_grabbed`, `losers_killed`, `active_races`, `dry_run`, plus `downloads` (per managed download: `name`, `speed_bytes_per_sec`, `eta_seconds`, `progress`, `state`).
 - `GET /metrics` → **Prometheus** exposition on the same `HEALTH_PORT` (stdlib-only, no deps). Scrape `:9797/metrics`. Series:
   - gauges: `racearr_up`, `racearr_dry_run`, `racearr_active_races`, `racearr_managed_downloads`, `racearr_loops_total`, `racearr_last_loop_age_seconds`
-  - counters: `racearr_incidents_total{type}`, `racearr_pickups_total{instance,result}`, `racearr_races_started_total{instance}`, `racearr_candidates_grabbed_total{instance}`, `racearr_losers_killed_total{instance}`, `racearr_downloads_reached_target_total{instance}`, `racearr_race_outcomes_total{instance,outcome}`
+  - counters: `racearr_incidents_total{type}`, `racearr_pickups_total{instance,result}`, `racearr_races_started_total{instance}`, `racearr_race_attempts_total{instance,outcome}`, `racearr_candidates_grabbed_total{instance}`, `racearr_losers_killed_total{instance}`, `racearr_downloads_reached_target_total{instance}`, `racearr_race_outcomes_total{instance,outcome}`
   - histograms: `racearr_pickup_latency_seconds`, `racearr_time_to_target_seconds`, `racearr_race_winner_mbps`
   - Known label sets are pre-registered at `0`, so dashboards render clean zeros before the first event fires.
 - A starter Grafana dashboard ships in [`deploy/grafana/racearr-dashboard.json`](deploy/grafana/racearr-dashboard.json) (expects a Prometheus datasource `uid: prometheus`; the logs panel expects a Loki datasource `uid: loki`).

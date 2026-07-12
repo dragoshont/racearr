@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Racearr.Web;
 
@@ -10,9 +11,11 @@ using Racearr.Web;
 namespace Racearr.Web.Migrations
 {
     [DbContext(typeof(RacearrDbContext))]
-    partial class RacearrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260711145346_DurableEngineState")]
+    partial class DurableEngineState
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
@@ -51,32 +54,6 @@ namespace Racearr.Web.Migrations
                         .IsUnique();
 
                     b.ToTable("connections", (string)null);
-                });
-
-            modelBuilder.Entity("Racearr.Core.EngineCounters", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("CandidatesGrabbed")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("Incidents")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("Loops")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("LosersKilled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("RacesStarted")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("engine_counters", (string)null);
                 });
 
             modelBuilder.Entity("Racearr.Core.EngineItemState", b =>

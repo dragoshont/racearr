@@ -9,6 +9,8 @@ namespace Racearr.Web;
 public sealed class RaceEngineHostedService(
     RacearrOptions options,
     RaceEngine engine,
+    RaceEngineState state,
+    IEngineCounterStore counters,
     ILogger<RaceEngineHostedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -30,12 +32,18 @@ public sealed class RaceEngineHostedService(
             do
             {
                 await engine.TickAsync(stoppingToken);
+                counters.Save(state.CountersSnapshot());
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException)
         {
             // graceful shutdown
+        }
+        finally
+        {
+            // Flush the final totals so a graceful shutdown never loses the last tick's counts.
+            counters.Save(state.CountersSnapshot());
         }
     }
 }

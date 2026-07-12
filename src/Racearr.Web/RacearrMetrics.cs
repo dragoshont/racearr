@@ -27,6 +27,7 @@ public sealed class RacearrMetrics : IEngineMetrics
     public Counter Incidents { get; }            // {type}
     public Counter Pickups { get; }              // {instance,result}
     public Counter RacesStarted { get; }         // {instance}
+    public Counter RaceAttempts { get; }         // {instance,outcome}
     public Counter CandidatesGrabbed { get; }    // {instance}
     public Counter LosersKilled { get; }         // {instance}
     public Counter ReachedTarget { get; }        // {instance}
@@ -51,6 +52,8 @@ public sealed class RacearrMetrics : IEngineMetrics
             new CounterConfiguration { LabelNames = ["instance", "result"] });
         RacesStarted = factory.CreateCounter("racearr_races_started_total", "Speed-SLA races started.",
             new CounterConfiguration { LabelNames = ["instance"] });
+        RaceAttempts = factory.CreateCounter("racearr_race_attempts_total", "Race attempts by classified outcome.",
+            new CounterConfiguration { LabelNames = ["instance", "outcome"] });
         CandidatesGrabbed = factory.CreateCounter("racearr_candidates_grabbed_total", "Alternate releases grabbed to race.",
             new CounterConfiguration { LabelNames = ["instance"] });
         LosersKilled = factory.CreateCounter("racearr_losers_killed_total", "Slower race candidates removed.",
@@ -78,6 +81,8 @@ public sealed class RacearrMetrics : IEngineMetrics
         foreach (var instance in instances)
         {
             RacesStarted.WithLabels(instance).IncTo(0);
+            foreach (var outcome in new[] { "accepted", "already_present", "rejected", "failed", "dry_run", "no_candidates", "search_failed" })
+                RaceAttempts.WithLabels(instance, outcome).IncTo(0);
             CandidatesGrabbed.WithLabels(instance).IncTo(0);
             LosersKilled.WithLabels(instance).IncTo(0);
             ReachedTarget.WithLabels(instance).IncTo(0);
@@ -87,7 +92,7 @@ public sealed class RacearrMetrics : IEngineMetrics
             RaceOutcomes.WithLabels(instance, "kept_below_target").IncTo(0);
         }
 
-        foreach (var type in new[] { "pickup_sla", "speed_sla", "race_no_target" })
+        foreach (var type in new[] { "pickup_sla", "speed_sla", "stalled_dead", "race_no_target", "fake_rejected", "import_failed" })
             Incidents.WithLabels(type).IncTo(0);
     }
 
@@ -107,6 +112,7 @@ public sealed class RacearrMetrics : IEngineMetrics
     public void ObservePickupLatency(double seconds) => PickupLatencySeconds.Observe(seconds);
     public void IncPickup(string instance, string result) => Pickups.WithLabels(instance, result).Inc();
     public void IncRaceStarted(string instance) => RacesStarted.WithLabels(instance).Inc();
+    public void IncRaceAttempt(string instance, string outcome) => RaceAttempts.WithLabels(instance, outcome).Inc();
     public void IncCandidatesGrabbed(string instance, double count) => CandidatesGrabbed.WithLabels(instance).Inc(count);
     public void IncLosersKilled(string instance) => LosersKilled.WithLabels(instance).Inc();
     public void IncReachedTarget(string instance) => ReachedTarget.WithLabels(instance).Inc();

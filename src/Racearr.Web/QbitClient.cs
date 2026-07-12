@@ -13,7 +13,7 @@ namespace Racearr.Web;
 /// </summary>
 public sealed class QbitClient(HttpClient http, RacearrOptions options, ILogger<QbitClient> log) : IQbitClient
 {
-    public async Task<IReadOnlyDictionary<string, TorrentInfo>> GetByHashAsync(CancellationToken ct)
+    public async Task<TorrentSnapshot> GetByHashAsync(CancellationToken ct)
     {
         try
         {
@@ -34,16 +34,19 @@ public sealed class QbitClient(HttpClient http, RacearrOptions options, ILogger<
                         MagnetUri = Str(t, "magnet_uri") ?? "",
                         State = Str(t, "state") ?? "",
                         NumSeeds = (int)Num(t, "num_seeds"),
+                        Eta = (long)Num(t, "eta"),
+                        Name = Str(t, "name") ?? "",
+                        Size = (long)Num(t, "size"),
                     };
                 }
             }
-            return dict;
+            return new TorrentSnapshot(true, dict);
         }
         catch (Exception ex)
         {
-            // Never let a download-client hiccup crash the loop (matches the Python behaviour).
+            // Surface unavailability explicitly so the engine skips every race/cull decision.
             log.LogWarning(ex, "qbit fetch failed");
-            return new Dictionary<string, TorrentInfo>();
+            return TorrentSnapshot.Unavailable;
         }
     }
 

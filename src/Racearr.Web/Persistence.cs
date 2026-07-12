@@ -84,6 +84,113 @@ public sealed class DbEventHistory(IDbContextFactory<RacearrDbContext> factory) 
     }
 }
 
+/// <summary>SQLite-backed ownership/retry state used by the control engine across restarts.</summary>
+public sealed class DbEngineStateStore(IDbContextFactory<RacearrDbContext> factory) : IEngineStateStore
+{
+    public IReadOnlyList<EngineItemState> Load()
+    {
+        using var db = factory.CreateDbContext();
+        return db.EngineItemStates.AsNoTracking().ToList();
+    }
+
+    public void Upsert(EngineItemState state)
+    {
+        using var db = factory.CreateDbContext();
+        var row = db.EngineItemStates.Find(state.Key);
+        if (row is null)
+        {
+            db.EngineItemStates.Add(Copy(state));
+        }
+        else
+        {
+            row.Instance = state.Instance;
+            row.ItemId = state.ItemId;
+            row.PickupFirstSeenUtc = state.PickupFirstSeenUtc;
+            row.PickupAlerted = state.PickupAlerted;
+            row.QueueFingerprint = state.QueueFingerprint;
+            row.QueueFirstSeenUtc = state.QueueFirstSeenUtc;
+            row.RetryCount = state.RetryCount;
+            row.NextRetryUtc = state.NextRetryUtc;
+            row.LastIncidentType = state.LastIncidentType;
+            row.UpdatedUtc = state.UpdatedUtc;
+        }
+        db.SaveChanges();
+    }
+
+    public void Delete(string key)
+    {
+        using var db = factory.CreateDbContext();
+        var row = db.EngineItemStates.Find(key);
+        if (row is null) return;
+        db.EngineItemStates.Remove(row);
+        db.SaveChanges();
+    }
+
+    private static EngineItemState Copy(EngineItemState state) => new()
+    {
+        Key = state.Key,
+        Instance = state.Instance,
+        ItemId = state.ItemId,
+        PickupFirstSeenUtc = state.PickupFirstSeenUtc,
+        PickupAlerted = state.PickupAlerted,
+        QueueFingerprint = state.QueueFingerprint,
+        QueueFirstSeenUtc = state.QueueFirstSeenUtc,
+        RetryCount = state.RetryCount,
+        NextRetryUtc = state.NextRetryUtc,
+        LastIncidentType = state.LastIncidentType,
+        UpdatedUtc = state.UpdatedUtc,
+    };
+}
+
+/// <summary>
+/// SQLite-backed cumulative run counters (a single row): the dashboard totals that must survive a
+/// restart. Reads/writes are best-effort — a database hiccup is logged and swallowed so it can never
+/// crash the control loop (matching the Python "never let IO crash the loop" posture).
+/// </summary>
+public sealed class DbEngineCounterStore(IDbContextFactory<RacearrDbContext> factory, ILogger<DbEngineCounterStore> log) : IEngineCounterStore
+{
+    public EngineCounters Load()
+    {
+        try
+        {
+            using var db = factory.CreateDbContext();
+            return db.EngineCounters.AsNoTracking().FirstOrDefault(c => c.Id == EngineCounters.RowId) ?? new EngineCounters();
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "failed to load engine counters; starting from zero");
+            return new EngineCounters();
+        }
+    }
+
+    public void Save(EngineCounters counters)
+    {
+        try
+        {
+            using var db = factory.CreateDbContext();
+            var row = db.EngineCounters.Find(EngineCounters.RowId);
+            if (row is null)
+            {
+                counters.Id = EngineCounters.RowId;
+                db.EngineCounters.Add(counters);
+            }
+            else
+            {
+                row.Loops = counters.Loops;
+                row.Incidents = counters.Incidents;
+                row.RacesStarted = counters.RacesStarted;
+                row.CandidatesGrabbed = counters.CandidatesGrabbed;
+                row.LosersKilled = counters.LosersKilled;
+            }
+            db.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "failed to persist engine counters");
+        }
+    }
+}
+
 /// <summary>
 /// SQLite-backed connection store: seeds env-derived defaults on first run and upserts by kind.
 /// Stores secrets (API key / password); callers must redact them before showing them in the UI/API.

@@ -17,21 +17,51 @@ public class RaceEngineTests
         public List<Release> Releases = [];
         public List<int> ForcedSearches = [];
         public List<string> Grabbed = [];
+        public GrabOutcome GrabOutcome = GrabOutcome.Accepted;
+        public bool SearchSucceeds = true;
+        public bool DeleteSucceeds = true;
+        public Exception? WantedError;
+        public int ReleaseSearches;
         public List<int> Deleted = [];
         public List<(int Id, bool RemoveFromClient, bool Blocklist)> DeleteCalls = [];
 
-        public Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<QueueRecord>>(Queue);
-        public Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<WantedItem>>(Wanted);
-        public Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult<IReadOnlyList<Release>>(Releases);
-        public Task ForceSearchAsync(ArrInstance i, int id, CancellationToken ct) { ForcedSearches.Add(id); return Task.CompletedTask; }
-        public Task<bool> GrabAsync(ArrInstance i, Release r, CancellationToken ct) { Grabbed.Add(r.InfoHash); return Task.FromResult(true); }
-        public Task DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct) { Deleted.Add(id); DeleteCalls.Add((id, rc, bl)); return Task.CompletedTask; }
+        public Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance i, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<QueueRecord>>(Queue);
+        public Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance i, CancellationToken ct)
+            => WantedError is null ? Task.FromResult<IReadOnlyList<WantedItem>>(Wanted) : Task.FromException<IReadOnlyList<WantedItem>>(WantedError);
+        public Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance i, int id, CancellationToken ct)
+        {
+            ReleaseSearches++;
+            return Task.FromResult<IReadOnlyList<Release>>(Releases);
+        }
+        public Task<ArrMutationResult> ForceSearchAsync(ArrInstance i, int id, CancellationToken ct)
+        {
+            ForcedSearches.Add(id);
+            return Task.FromResult(new ArrMutationResult(SearchSucceeds));
+        }
+        public Task<GrabResult> GrabAsync(ArrInstance i, int itemId, Release r, CancellationToken ct)
+        {
+            Grabbed.Add(r.InfoHash);
+            return Task.FromResult(new GrabResult(GrabOutcome));
+        }
+        public Task<ArrMutationResult> DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct)
+        {
+            Deleted.Add(id);
+            DeleteCalls.Add((id, rc, bl));
+            return Task.FromResult(new ArrMutationResult(DeleteSucceeds));
+        }
+        public Task<LibraryStats> GetLibraryStatsAsync(ArrInstance i, CancellationToken ct)
+            => Task.FromResult(new LibraryStats(i.Name, 0, 0));
+        public Task<PlexLinkStatus> GetPlexLinkStatusAsync(ArrInstance i, CancellationToken ct)
+            => Task.FromResult(new PlexLinkStatus(i.Name, true, true, true, null));
     }
 
     private sealed class FakeQbit : IQbitClient
     {
         public Dictionary<string, TorrentInfo> Torrents = [];
-        public Task<IReadOnlyDictionary<string, TorrentInfo>> GetByHashAsync(CancellationToken ct) => Task.FromResult<IReadOnlyDictionary<string, TorrentInfo>>(Torrents);
+        public bool Available = true;
+        public Task<TorrentSnapshot> GetByHashAsync(CancellationToken ct)
+            => Task.FromResult(new TorrentSnapshot(Available, Torrents));
     }
 
     private sealed class CountingMetrics : IEngineMetrics
@@ -39,6 +69,7 @@ public class RaceEngineTests
         public readonly Dictionary<string, int> Pickups = [];
         public readonly List<string> IncidentTypes = [];
         public readonly List<string> RaceOutcomes = [];
+        public readonly List<string> RaceAttempts = [];
         public int Incidents;
         public int RacesStarted;
         public int CandidatesGrabbed;
@@ -48,6 +79,7 @@ public class RaceEngineTests
         public void ObservePickupLatency(double s) { }
         public void IncPickup(string instance, string result) => Pickups[result] = Pickups.GetValueOrDefault(result) + 1;
         public void IncRaceStarted(string instance) => RacesStarted++;
+        public void IncRaceAttempt(string instance, string outcome) => RaceAttempts.Add(outcome);
         public void IncCandidatesGrabbed(string instance, double c) => CandidatesGrabbed += (int)c;
         public void IncLosersKilled(string instance) => LosersKilled++;
         public void IncReachedTarget(string instance) => ReachedTarget++;
@@ -62,8 +94,28 @@ public class RaceEngineTests
         public void Record(RaceEvent evt) => Events.Add(evt);
     }
 
-    private static RaceEngine NewEngine(RacearrOptions o, FakeArr arr, FakeQbit qbit, IEngineMetrics m, IEventSink? events = null)
-        => new(o, arr, qbit, m, events ?? NullEventSink.Instance, new RaceEngineState(o.DryRun), NullLogger<RaceEngine>.Instance);
+    private sealed class MemoryStateStore : IEngineStateStore
+    {
+        public Dictionary<string, EngineItemState> Items { get; } = [];
+
+        public IReadOnlyList<EngineItemState> Load() => Items.Values.Select(Copy).ToList();
+        public void Upsert(EngineItemState state) => Items[state.Key] = Copy(state);
+        public void Delete(string key) => Items.Remove(key);
+
+        private static EngineItemState Copy(EngineItemState state) => new()
+        {
+            Key = state.Key, Instance = state.Instance, ItemId = state.ItemId,
+            PickupFirstSeenUtc = state.PickupFirstSeenUtc, PickupAlerted = state.PickupAlerted,
+            QueueFingerprint = state.QueueFingerprint, QueueFirstSeenUtc = state.QueueFirstSeenUtc,
+            RetryCount = state.RetryCount, NextRetryUtc = state.NextRetryUtc,
+            LastIncidentType = state.LastIncidentType, UpdatedUtc = state.UpdatedUtc,
+        };
+    }
+
+    private static RaceEngine NewEngine(RacearrOptions o, FakeArr arr, FakeQbit qbit, IEngineMetrics m,
+        IEventSink? events = null, IEngineStateStore? stateStore = null)
+        => new(o, arr, qbit, m, events ?? NullEventSink.Instance, stateStore ?? NullEngineStateStore.Instance,
+            new RaceEngineState(o.DryRun), NullLogger<RaceEngine>.Instance);
 
     [Fact]
     public async Task Baseline_ProtectsPreExistingDownloadsAndWanted()
@@ -105,6 +157,86 @@ public class RaceEngineTests
 
         Assert.Equal(1, metrics.Pickups.GetValueOrDefault("in_sla"));
         Assert.Equal(0, metrics.Pickups.GetValueOrDefault("breached"));
+    }
+
+    [Fact]
+    public async Task Downloads_ManagedItem_ExposesSpeedProgressAndEta()
+    {
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = true };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit
+        {
+            Torrents =
+            {
+                ["newhash"] = new TorrentInfo
+                {
+                    Name = "New.Movie.2024.1080p", DlSpeed = 5_242_880, Eta = 90, Progress = 0.25, State = "downloading",
+                },
+            },
+        };
+        var metrics = new CountingMetrics();
+        var state = new RaceEngineState(o.DryRun);
+        var engine = new RaceEngine(o, arr, qbit, metrics, NullEventSink.Instance,
+            NullEngineStateStore.Instance, state, NullLogger<RaceEngine>.Instance);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None); // empty baseline -> "newhash" is a fresh managed download
+        arr.Queue = [new QueueRecord { Id = 5, ItemId = 300, DownloadId = "newhash" }];
+        await engine.TickAsync(CancellationToken.None);
+
+        var d = Assert.Single(state.Downloads);
+        Assert.Equal("New.Movie.2024.1080p", d.Name);
+        Assert.Equal(5_242_880d, d.SpeedBytesPerSec);
+        Assert.Equal(90L, d.EtaSeconds);
+        Assert.Equal(0.25, d.Progress, 3);
+        Assert.Equal("downloading", d.State);
+    }
+
+    [Fact]
+    public async Task Downloads_BaselineDownload_IsExcluded()
+    {
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = true };
+        var arr = new FakeArr
+        {
+            Queue = { new QueueRecord { Id = 1, ItemId = 100, DownloadId = "preexisting" } },
+        };
+        var qbit = new FakeQbit
+        {
+            Torrents = { ["preexisting"] = new TorrentInfo { Name = "Old", DlSpeed = 1000, Progress = 0.9 } },
+        };
+        var metrics = new CountingMetrics();
+        var state = new RaceEngineState(o.DryRun);
+        var engine = new RaceEngine(o, arr, qbit, metrics, NullEventSink.Instance,
+            NullEngineStateStore.Instance, state, NullLogger<RaceEngine>.Instance);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None); // "preexisting" is captured as baseline
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Empty(state.Downloads); // pre-existing (baseline) downloads are not surfaced as managed
+    }
+
+    [Fact]
+    public void Counters_SeedThenSnapshot_RoundTripsAndContinuesFromSeed()
+    {
+        var state = new RaceEngineState(dryRun: false);
+        state.SeedCounters(new EngineCounters { Loops = 283, Incidents = 26, RacesStarted = 2, CandidatesGrabbed = 5, LosersKilled = 6 });
+
+        // Persisted totals surface on the dashboard/status snapshot after a restart.
+        var snap = state.Snapshot();
+        Assert.Equal(283, snap.Loops);
+        Assert.Equal(26, snap.Incidents);
+        Assert.Equal(2, snap.RacesStarted);
+        Assert.Equal(5, snap.CandidatesGrabbed);
+        Assert.Equal(6, snap.LosersKilled);
+
+        // The loop continues from the seed (never resets to zero); CountersSnapshot captures what is flushed.
+        state.MarkLoop();
+        state.AddRaceStarted();
+        state.AddLosersKilled(1);
+        var persisted = state.CountersSnapshot();
+        Assert.Equal(284, persisted.Loops);
+        Assert.Equal(3, persisted.RacesStarted);
+        Assert.Equal(7, persisted.LosersKilled);
+        Assert.Equal(26, persisted.Incidents);
     }
 
     [Fact]
@@ -337,7 +469,7 @@ public class RaceEngineTests
     }
 
     [Fact]
-    public async Task SpeedSla_NoRaceableCandidate_ForcesSearchAndBacksOff()
+    public async Task SpeedSla_NoRaceableCandidate_RecordsAttemptAndBacksOffWithoutSecondSearch()
     {
         var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0, RaceMinSeeders = 3 };
         var arr = new FakeArr(); // no releases -> no raceable candidates
@@ -349,10 +481,108 @@ public class RaceEngineTests
         arr.Queue = [new QueueRecord { Id = 70, ItemId = 1100, DownloadId = "slow" }];
         await engine.TickAsync(CancellationToken.None);
 
-        Assert.Equal(1, metrics.RacesStarted);          // the race attempt is counted
-        Assert.Equal(0, metrics.CandidatesGrabbed);     // but nothing is grabbed
-        Assert.Equal([1100], arr.ForcedSearches);       // it falls back to a forced search
+        Assert.Equal(0, metrics.RacesStarted);          // no accepted alternate -> no race started
+        Assert.Equal(0, metrics.CandidatesGrabbed);
+        Assert.Empty(arr.ForcedSearches);               // /release already performed the interactive search
+        Assert.Contains("no_candidates", metrics.RaceAttempts);
         Assert.Contains("speed_sla", metrics.IncidentTypes);
+    }
+
+    [Fact]
+    public async Task SpeedSla_FailedGrab_DoesNotStartRaceAndRecordsFailedAttempt()
+    {
+        var options = new RacearrOptions { RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0 };
+        var arr = new FakeArr
+        {
+            GrabOutcome = GrabOutcome.Failed,
+            Releases =
+            {
+                new Release { Protocol = "torrent", Seeders = 20, Resolution = 1080, InfoHash = "alt", Guid = "g" },
+            },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 1_000, Progress = 0.1 } } };
+        var metrics = new CountingMetrics();
+        var events = new CountingEventSink();
+        var engine = NewEngine(options, arr, qbit, metrics, events);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 1101, DownloadId = "slow" }];
+
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(0, metrics.RacesStarted);
+        Assert.Contains("failed", metrics.RaceAttempts);
+        Assert.DoesNotContain(events.Events, e => e.Kind == "race_started");
+        Assert.Contains(events.Events, e => e.Kind == "race_attempt" && e.Outcome == "failed");
+    }
+
+    [Fact]
+    public async Task StalledDead_IncidentAndSearchAreLatchedDuringRetryWindow()
+    {
+        var options = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, RaceStallSeconds = 0,
+            SpeedSlaSeconds = 999, RaceCooldownSeconds = 600,
+        };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit
+        {
+            Torrents = { ["dead"] = new TorrentInfo { State = "stalledDL", NumSeeds = 0 } },
+        };
+        var metrics = new CountingMetrics();
+        var engine = NewEngine(options, arr, qbit, metrics);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 1102, DownloadId = "dead", Size = 1_000_000_000 }];
+
+        await engine.TickAsync(CancellationToken.None);
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(1, metrics.IncidentTypes.Count(type => type == "stalled_dead"));
+        Assert.Equal(1, arr.ReleaseSearches);
+    }
+
+    [Fact]
+    public async Task PersistedPickupOwnership_SurvivesRestartInsteadOfJoiningBaseline()
+    {
+        var firstOptions = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 999 };
+        var arr = new FakeArr();
+        var store = new MemoryStateStore();
+        var firstMetrics = new CountingMetrics();
+        var first = NewEngine(firstOptions, arr, new FakeQbit(), firstMetrics, stateStore: store);
+        await first.PrimeBaselineAsync(CancellationToken.None);
+        arr.Wanted = [new WantedItem(1103, "Requested")];
+        await first.TickAsync(CancellationToken.None);
+        Assert.Contains("radarr:1103", store.Items.Keys);
+
+        var secondOptions = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0 };
+        var secondMetrics = new CountingMetrics();
+        var secondArr = new FakeArr { Wanted = { new WantedItem(1103, "Requested") } };
+        var second = NewEngine(secondOptions, secondArr, new FakeQbit(), secondMetrics, stateStore: store);
+        await second.PrimeBaselineAsync(CancellationToken.None);
+        await second.TickAsync(CancellationToken.None);
+
+        Assert.Contains("pickup_sla", secondMetrics.IncidentTypes);
+        Assert.Equal([1103], secondArr.ForcedSearches);
+    }
+
+    [Fact]
+    public async Task BaselineFailure_LeavesInstanceUnprimedAndPerformsNoActions()
+    {
+        var options = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0 };
+        var arr = new FakeArr
+        {
+            WantedError = new InvalidDataException("page two failed"),
+            Queue = { new QueueRecord { Id = 1, ItemId = 1104, DownloadId = "slow" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { State = "stalledDL" } } };
+        var metrics = new CountingMetrics();
+        var engine = NewEngine(options, arr, qbit, metrics);
+
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(0, arr.ReleaseSearches);
+        Assert.Empty(arr.ForcedSearches);
+        Assert.Empty(arr.Deleted);
+        Assert.Equal(0, metrics.Incidents);
     }
 
     [Fact]
@@ -590,7 +820,7 @@ public class RaceEngineTests
         };
         var qbit = new FakeQbit { Torrents = { ["dead"] = new TorrentInfo { State = "stalledDL", NumSeeds = 0, DlSpeed = 0, Progress = 0.0 } } };
         var metrics = new CountingMetrics();
-        var arr = new FakeArr();       // no releases -> the race falls back to a force-search
+        var arr = new FakeArr();       // no releases -> the interactive release search is the only search
         var engine = NewEngine(o, arr, qbit, metrics);
         await engine.PrimeBaselineAsync(CancellationToken.None);
 
@@ -599,7 +829,8 @@ public class RaceEngineTests
 
         Assert.Contains("stalled_dead", metrics.IncidentTypes);   // raised the stalled incident, not speed_sla
         Assert.DoesNotContain("speed_sla", metrics.IncidentTypes);
-        Assert.Contains(1600, arr.ForcedSearches);                // raced -> no alternates -> forced a fresh search
+        Assert.Empty(arr.ForcedSearches);
+        Assert.Contains("no_candidates", metrics.RaceAttempts);
     }
 
     [Fact]
@@ -617,6 +848,7 @@ public class RaceEngineTests
         await engine.TickAsync(CancellationToken.None);
 
         Assert.Contains("stalled_dead", metrics.IncidentTypes);
-        Assert.Contains(1601, arr.ForcedSearches);
+        Assert.Empty(arr.ForcedSearches);
+        Assert.Contains("no_candidates", metrics.RaceAttempts);
     }
 }

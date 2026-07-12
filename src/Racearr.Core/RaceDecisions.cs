@@ -48,9 +48,12 @@ public static class RaceDecisions
     /// (minus the IO fetch). Filters then sorts by descending seeders (stable).
     /// </summary>
     public static IReadOnlyList<Release> SelectCandidates(
-        IEnumerable<Release> releases, IReadOnlySet<string> excludeHashes, RacearrOptions o)
+        IEnumerable<Release> releases, IReadOnlySet<string> excludeHashes, RacearrOptions o,
+        IEnumerable<QueueRecord>? activeRecords = null)
     {
         var outp = new List<Release>();
+        var active = activeRecords?.ToList() ?? [];
+        var hashlessIdentities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var r in releases)
         {
             if (r.Protocol != "torrent") continue;
@@ -63,10 +66,63 @@ public static class RaceDecisions
             if (o.ProtectPrivate && IsPrivateRelease(r, o)) continue;
             var ih = r.InfoHash.ToLowerInvariant();
             if (ih.Length > 0 && excludeHashes.Contains(ih)) continue;
+            if (ih.Length == 0)
+            {
+                var identity = FallbackIdentity(r);
+                if (identity is null || !hashlessIdentities.Add(identity)) continue;
+                if (active.Any(q => IsSameRelease(r, q))) continue;
+            }
             outp.Add(r);
         }
         // OrderByDescending is stable in .NET, preserving the source order among equal seeders.
         return outp.OrderByDescending(r => r.Seeders).ToList();
+    }
+
+    /// <summary>
+    /// Match a hashless release-search result to an active queue record. The fallback deliberately
+    /// requires exact indexer, exact nonzero size, and an exact normalized title.
+    /// </summary>
+    public static bool IsSameRelease(Release release, QueueRecord queued)
+    {
+        var releaseIdentity = FallbackIdentity(release);
+        var queueIdentity = FallbackIdentity(queued);
+        return releaseIdentity is not null && releaseIdentity == queueIdentity;
+    }
+
+    /// <summary>Capped exponential delay for repeated no-candidate or failed race attempts.</summary>
+    public static int RetryDelaySeconds(int retryCount, RacearrOptions o)
+    {
+        if (o.RaceCooldownSeconds <= 0 || retryCount <= 0) return 0;
+        var exponent = Math.Min(retryCount - 1, 30);
+        var delay = (long)o.RaceCooldownSeconds << exponent;
+        return (int)Math.Min(delay, Math.Max(o.RaceCooldownSeconds, o.RaceRetryMaxSeconds));
+    }
+
+    private static string? FallbackIdentity(Release release)
+        => FallbackIdentity(release.Indexer, release.Title, release.Size);
+
+    private static string? FallbackIdentity(QueueRecord queued)
+        => FallbackIdentity(queued.Indexer, queued.Title, queued.Size);
+
+    private static string? FallbackIdentity(string indexer, string title, long size)
+    {
+        if (size <= 0 || string.IsNullOrWhiteSpace(indexer)) return null;
+        var normalizedTitle = NormalizeTitle(title);
+        if (normalizedTitle.Length == 0) return null;
+        return $"{indexer.Trim().ToLowerInvariant()}|{size}|{normalizedTitle}";
+    }
+
+    private static string NormalizeTitle(string title)
+    {
+        var chars = new List<char>(title.Length);
+        var bracketDepth = 0;
+        foreach (var ch in title)
+        {
+            if (ch == '[') { bracketDepth++; continue; }
+            if (ch == ']' && bracketDepth > 0) { bracketDepth--; continue; }
+            if (bracketDepth == 0 && char.IsLetterOrDigit(ch)) chars.Add(char.ToLowerInvariant(ch));
+        }
+        return new string([.. chars]);
     }
 
     /// <summary>Pickup result label: within the pickup-SLA window, or breached. Port of the pickup classification.</summary>

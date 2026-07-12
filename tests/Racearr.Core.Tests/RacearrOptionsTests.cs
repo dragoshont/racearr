@@ -18,6 +18,7 @@ public class RacearrOptionsTests
         Assert.Equal(2.0, o.RaceTargetMbps);
         Assert.Equal(4, o.MaxConcurrentPerItem);
         Assert.Equal(1080, o.RaceMaxResolution);
+        Assert.Equal(21600, o.RaceRetryMaxSeconds);
         Assert.True(o.ProtectPrivate);
         Assert.True(o.DryRun);            // safe default: observe-only until explicitly armed
         Assert.Equal(9797, o.HealthPort);

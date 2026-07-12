@@ -26,6 +26,7 @@ public sealed class RacearrOptions
     public int RaceCullAfterSeconds { get; init; } = 60;
     public int RaceMonitorSeconds { get; init; } = 180;
     public int RaceCooldownSeconds { get; init; } = 600;
+    public int RaceRetryMaxSeconds { get; init; } = 21600;
     public int MaxConcurrentPerItem { get; init; } = 4;
     public int MaxActiveRaces { get; init; } = 6;
     public int RaceMinSeeders { get; init; } = 3;
@@ -114,6 +115,7 @@ public sealed class RacearrOptions
             RaceCullAfterSeconds = Int("RACE_CULL_AFTER_SECONDS", 60),
             RaceMonitorSeconds = Int("RACE_MONITOR_SECONDS", 180),
             RaceCooldownSeconds = Int("RACE_COOLDOWN_SECONDS", 600),
+            RaceRetryMaxSeconds = Int("RACE_RETRY_MAX_SECONDS", 21600),
             MaxConcurrentPerItem = Int("MAX_CONCURRENT_PER_ITEM", 4),
             MaxActiveRaces = Int("MAX_ACTIVE_RACES", 6),
             RaceMinSeeders = Int("RACE_MIN_SEEDERS", 3),
@@ -147,6 +149,7 @@ public sealed class RacearrOptions
             ["RACE_CULL_AFTER_SECONDS"] = RaceCullAfterSeconds.ToString(inv),
             ["RACE_MONITOR_SECONDS"] = RaceMonitorSeconds.ToString(inv),
             ["RACE_COOLDOWN_SECONDS"] = RaceCooldownSeconds.ToString(inv),
+            ["RACE_RETRY_MAX_SECONDS"] = RaceRetryMaxSeconds.ToString(inv),
             ["MAX_CONCURRENT_PER_ITEM"] = MaxConcurrentPerItem.ToString(inv),
             ["MAX_ACTIVE_RACES"] = MaxActiveRaces.ToString(inv),
             ["RACE_MIN_SEEDERS"] = RaceMinSeeders.ToString(inv),

@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   # The .NET rewrite is live in production (cutover complete). Semver tag releases are enabled:
@@ -10,15 +10,21 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
@@ -29,9 +35,55 @@ jobs:
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal
 
-  docker:
+  container-smoke:
     needs: build-test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build smoke-test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: racearr:smoke
+          cache-from: type=gha,scope=smoke
+          cache-to: type=gha,mode=max,scope=smoke
+      - name: Start container and verify health
+        shell: bash
+        run: |
+          docker run -d --name racearr-smoke \
+            -e RADARR_API_KEY=smoke \
+            -e RADARR_URL=http://127.0.0.1:1 \
+            -e QBIT_URL=http://127.0.0.1:1 \
+            -e DRY_RUN=true \
+            -p 127.0.0.1:19797:9797 \
+            racearr:smoke
+
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:19797/healthz | grep --quiet '^ok$'; then
+              docker rm --force racearr-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs racearr-smoke
+          docker inspect racearr-smoke
+          docker rm --force racearr-smoke
+          exit 1
+
+  docker:
+    needs: [build-test, container-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-qemu-action@v3
@@ -56,6 +108,7 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Build (and push on main/tags)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -63,3 +116,31 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=image
+          cache-to: type=gha,mode=max,scope=image
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.docker.outputs.digest }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          printf 'Container: `%s`\n\nDigest: `%s`\n' \
+            "ghcr.io/${GITHUB_REPOSITORY}:${version}" \
+            "$IMAGE_DIGEST" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "racearr $GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes-file release-notes.md

@@ -6,7 +6,8 @@
 #   3. set DRY_RUN=false to arm it
 services:
   racearr:
-    build: .                       # or: image: ghcr.io/dragoshont/racearr:latest
+    image: ghcr.io/dragoshont/racearr:latest
+    # build: .                     # uncomment for a local source build
     container_name: racearr
     restart: unless-stopped
     environment:

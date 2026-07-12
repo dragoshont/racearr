@@ -37,6 +37,77 @@ public sealed class RaceEvent
     public double? Mbps { get; set; }
 }
 
+/// <summary>
+/// Durable ownership and retry state for one *arr item. A row exists only after racearr observes
+/// the item after its startup baseline, so restoring it never adopts unrelated pre-existing backlog.
+/// </summary>
+public sealed class EngineItemState
+{
+    public required string Key { get; set; }
+    public required string Instance { get; set; }
+    public int ItemId { get; set; }
+    public DateTimeOffset? PickupFirstSeenUtc { get; set; }
+    public bool PickupAlerted { get; set; }
+    public string? QueueFingerprint { get; set; }
+    public DateTimeOffset? QueueFirstSeenUtc { get; set; }
+    public int RetryCount { get; set; }
+    public DateTimeOffset? NextRetryUtc { get; set; }
+    public string? LastIncidentType { get; set; }
+    public DateTimeOffset UpdatedUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>Persistence boundary for engine-owned items. Implementations upsert by key.</summary>
+public interface IEngineStateStore
+{
+    IReadOnlyList<EngineItemState> Load();
+    void Upsert(EngineItemState state);
+    void Delete(string key);
+}
+
+/// <summary>No-op store for tests and history-less hosts; the engine still retains state in memory.</summary>
+public sealed class NullEngineStateStore : IEngineStateStore
+{
+    public static readonly NullEngineStateStore Instance = new();
+    public IReadOnlyList<EngineItemState> Load() => [];
+    public void Upsert(EngineItemState state) { }
+    public void Delete(string key) { }
+}
+
+/// <summary>
+/// Durable cumulative run counters (engine loops, races, incidents, kills, alternates grabbed) so
+/// the dashboard totals survive a pod restart. A single row (<see cref="RowId"/>); the engine seeds
+/// itself from it on startup and flushes it as the control loop runs.
+/// </summary>
+public sealed class EngineCounters
+{
+    /// <summary>The fixed primary key of the single counters row.</summary>
+    public const int RowId = 1;
+
+    public int Id { get; set; } = RowId;
+    public long Loops { get; set; }
+    public long Incidents { get; set; }
+    public long RacesStarted { get; set; }
+    public long CandidatesGrabbed { get; set; }
+    public long LosersKilled { get; set; }
+}
+
+/// <summary>Persistence boundary for the cumulative run counters (a single upserted row).</summary>
+public interface IEngineCounterStore
+{
+    /// <summary>Load the persisted counters, or zeroed counters when none are stored yet.</summary>
+    EngineCounters Load();
+    /// <summary>Persist the current counters (upsert the single row).</summary>
+    void Save(EngineCounters counters);
+}
+
+/// <summary>No-op counter store for tests and counter-less hosts (counters stay in memory only).</summary>
+public sealed class NullEngineCounterStore : IEngineCounterStore
+{
+    public static readonly NullEngineCounterStore Instance = new();
+    public EngineCounters Load() => new();
+    public void Save(EngineCounters counters) { }
+}
+
 /// <summary>Append-only sink for history events; implemented over the database in the web host.</summary>
 public interface IEventSink
 {
@@ -77,6 +148,7 @@ public static class SettingKeys
     [
         "POLL_SECONDS", "PICKUP_SLA_SECONDS", "SPEED_SLA_SECONDS", "SPEED_SLA_MBPS",
         "RACE_TARGET_MBPS", "RACE_CULL_AFTER_SECONDS", "RACE_MONITOR_SECONDS", "RACE_COOLDOWN_SECONDS",
+        "RACE_RETRY_MAX_SECONDS",
         "MAX_CONCURRENT_PER_ITEM", "MAX_ACTIVE_RACES", "RACE_MIN_SEEDERS", "RACE_MAX_RESOLUTION",
         "RACE_MIN_SIZE_MB", "RACE_RUNT_RATIO", "RACE_STALL_SECONDS", "PROTECT_PRIVATE",
     ];

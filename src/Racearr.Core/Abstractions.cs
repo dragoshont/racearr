@@ -10,18 +10,24 @@ public interface IArrClient
     Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance inst, CancellationToken ct);
     Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance inst, CancellationToken ct);
     Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance inst, int itemId, CancellationToken ct);
-    Task ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct);
+    Task<ArrMutationResult> ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct);
     /// <summary>Force-grab a release (bypasses the "already meets cutoff" auto-rejection). Returns success.</summary>
-    Task<bool> GrabAsync(ArrInstance inst, Release release, CancellationToken ct);
+    Task<GrabResult> GrabAsync(ArrInstance inst, int itemId, Release release, CancellationToken ct);
     /// <summary>Remove a queue record; <paramref name="removeFromClient"/> also deletes + blocklists the torrent.</summary>
-    Task DeleteQueueAsync(ArrInstance inst, int recordId, bool removeFromClient, bool blocklist, CancellationToken ct);
+    Task<ArrMutationResult> DeleteQueueAsync(ArrInstance inst, int recordId, bool removeFromClient, bool blocklist, CancellationToken ct);
+
+    /// <summary>Library size (movies for Radarr, series for Sonarr) for the dashboard impact summary.</summary>
+    Task<LibraryStats> GetLibraryStatsAsync(ArrInstance inst, CancellationToken ct);
+
+    /// <summary>Whether this instance is wired to refresh Plex on import (the "Plex Media Server" connection).</summary>
+    Task<PlexLinkStatus> GetPlexLinkStatusAsync(ArrInstance inst, CancellationToken ct);
 }
 
 /// <summary>Read-only view of the download client, used only to read live per-torrent speed.</summary>
 public interface IQbitClient
 {
     /// <summary>Torrents keyed by lowercase infohash.</summary>
-    Task<IReadOnlyDictionary<string, TorrentInfo>> GetByHashAsync(CancellationToken ct);
+    Task<TorrentSnapshot> GetByHashAsync(CancellationToken ct);
 }
 
 /// <summary>
@@ -35,6 +41,7 @@ public interface IEngineMetrics
     void ObservePickupLatency(double seconds);
     void IncPickup(string instance, string result);
     void IncRaceStarted(string instance);
+    void IncRaceAttempt(string instance, string outcome);
     void IncCandidatesGrabbed(string instance, double count);
     void IncLosersKilled(string instance);
     void IncReachedTarget(string instance);
@@ -51,6 +58,7 @@ public sealed class NullEngineMetrics : IEngineMetrics
     public void ObservePickupLatency(double seconds) { }
     public void IncPickup(string instance, string result) { }
     public void IncRaceStarted(string instance) { }
+    public void IncRaceAttempt(string instance, string outcome) { }
     public void IncCandidatesGrabbed(string instance, double count) { }
     public void IncLosersKilled(string instance) { }
     public void IncReachedTarget(string instance) { }

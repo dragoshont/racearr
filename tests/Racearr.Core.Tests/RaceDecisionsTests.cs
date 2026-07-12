@@ -108,6 +108,70 @@ public class RaceDecisionsTests
         Assert.Equal(["pub"], result.Select(r => r.InfoHash));
     }
 
+    [Fact]
+    public void SelectCandidates_ExcludesHashlessExactActiveRelease()
+    {
+        var release = Rel(seeders: 30) with
+        {
+            Indexer = "TorrentDownload", Title = "Show S01E01 1080p WEB DL [Group]", Size = 1_000_000_000,
+        };
+        var active = new QueueRecord
+        {
+            ItemId = 1, Indexer = "TorrentDownload", Title = "Show.S01E01.1080p.WEB-DL", Size = 1_000_000_000,
+        };
+
+        var result = RaceDecisions.SelectCandidates([release], new HashSet<string>(), new RacearrOptions(), [active]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SelectCandidates_KeepsHashlessDifferentSizeAndHashPresentAlternate()
+    {
+        var active = new QueueRecord
+        {
+            ItemId = 1, Indexer = "Indexer", Title = "Show S01E01", Size = 1_000_000_000,
+        };
+        var differentSize = Rel(seeders: 20) with
+        {
+            Indexer = "Indexer", Title = "Show S01E01", Size = 2_000_000_000,
+        };
+        var knownHash = Rel(seeders: 30, infoHash: "different") with
+        {
+            Indexer = "Indexer", Title = "Show S01E01", Size = 1_000_000_000,
+        };
+
+        var result = RaceDecisions.SelectCandidates(
+            [differentSize, knownHash], new HashSet<string>(), new RacearrOptions(), [active]);
+
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void SelectCandidates_DeduplicatesHashlessSearchResults()
+    {
+        var release = Rel(seeders: 20) with
+        {
+            Indexer = "Indexer", Title = "Show S01E01", Size = 1_000_000_000,
+        };
+
+        var result = RaceDecisions.SelectCandidates(
+            [release, release with { Seeders = 30 }], new HashSet<string>(), new RacearrOptions());
+
+        Assert.Single(result);
+    }
+
+    [Fact]
+    public void RetryDelay_IsExponentialAndCapped()
+    {
+        var options = new RacearrOptions { RaceCooldownSeconds = 10, RaceRetryMaxSeconds = 25 };
+
+        Assert.Equal(10, RaceDecisions.RetryDelaySeconds(1, options));
+        Assert.Equal(20, RaceDecisions.RetryDelaySeconds(2, options));
+        Assert.Equal(25, RaceDecisions.RetryDelaySeconds(3, options));
+        Assert.Equal(25, RaceDecisions.RetryDelaySeconds(30, options));
+    }
+
     [Theory]
     [InlineData(100, "in_sla")]
     [InlineData(180, "in_sla")]     // boundary: latency == SLA is still in-SLA (<=)

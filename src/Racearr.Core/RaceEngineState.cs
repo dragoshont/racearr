@@ -5,8 +5,8 @@ namespace Racearr.Core;
 /// <summary>
 /// Thread-safe, in-memory runtime state of the race engine. This is the single source of
 /// truth that both the <c>/status</c> endpoint and the Prometheus gauges read from. There is
-/// deliberately no persistence here — like the Python original, live race state is ephemeral
-/// and re-primed from the *arr queues on start (see ADR-0001 "re-baseline on restart").
+/// Runtime counters and active races remain ephemeral; per-item ownership and retry state are
+/// persisted separately through <see cref="IEngineStateStore"/> so restarts do not lose SLA work.
 /// </summary>
 public sealed class RaceEngineState
 {
@@ -40,6 +40,15 @@ public sealed class RaceEngineState
         set => Volatile.Write(ref _activeRaces, value);
     }
 
+    private IReadOnlyList<DownloadStatus> _downloads = [];
+
+    /// <summary>Live per-download progress (speed + ETA) for the managed downloads.</summary>
+    public IReadOnlyList<DownloadStatus> Downloads
+    {
+        get { lock (_gate) return _downloads; }
+        set { lock (_gate) _downloads = value; }
+    }
+
     public long Loops => Interlocked.Read(ref _loops);
     public long Incidents => Interlocked.Read(ref _incidents);
     public long RacesStarted => Interlocked.Read(ref _racesStarted);
@@ -69,7 +78,27 @@ public sealed class RaceEngineState
 
     public StatusSnapshot Snapshot() => new(
         Loops, Incidents, RacesStarted, CandidatesGrabbed, LosersKilled,
-        ActiveRaces, ManagedDownloads, DryRun, Math.Round(LastLoopAgeSeconds, 1));
+        ActiveRaces, ManagedDownloads, DryRun, Math.Round(LastLoopAgeSeconds, 1), Downloads);
+
+    /// <summary>Seed the cumulative counters from persisted state (once, before the loop starts).</summary>
+    public void SeedCounters(EngineCounters c)
+    {
+        Interlocked.Exchange(ref _loops, c.Loops);
+        Interlocked.Exchange(ref _incidents, c.Incidents);
+        Interlocked.Exchange(ref _racesStarted, c.RacesStarted);
+        Interlocked.Exchange(ref _candidatesGrabbed, c.CandidatesGrabbed);
+        Interlocked.Exchange(ref _losersKilled, c.LosersKilled);
+    }
+
+    /// <summary>Snapshot the cumulative counters for durable persistence across restarts.</summary>
+    public EngineCounters CountersSnapshot() => new()
+    {
+        Loops = Loops,
+        Incidents = Incidents,
+        RacesStarted = RacesStarted,
+        CandidatesGrabbed = CandidatesGrabbed,
+        LosersKilled = LosersKilled,
+    };
 }
 
 /// <summary>JSON shape returned by <c>GET /status</c> (field names mirror the Python service).</summary>
@@ -82,4 +111,13 @@ public sealed record StatusSnapshot(
     [property: JsonPropertyName("active_races")] int ActiveRaces,
     [property: JsonPropertyName("managed_downloads")] int ManagedDownloads,
     [property: JsonPropertyName("dry_run")] bool DryRun,
-    [property: JsonPropertyName("last_loop_age_seconds")] double LastLoopAgeSeconds);
+    [property: JsonPropertyName("last_loop_age_seconds")] double LastLoopAgeSeconds,
+    [property: JsonPropertyName("downloads")] IReadOnlyList<DownloadStatus> Downloads);
+
+/// <summary>Live progress for one managed download, surfaced on the dashboard and <c>/status</c>.</summary>
+public sealed record DownloadStatus(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("speed_bytes_per_sec")] double SpeedBytesPerSec,
+    [property: JsonPropertyName("eta_seconds")] long EtaSeconds,
+    [property: JsonPropertyName("progress")] double Progress,
+    [property: JsonPropertyName("state")] string State);
