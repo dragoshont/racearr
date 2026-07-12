@@ -47,6 +47,7 @@ public sealed class ArrClient(HttpClient http) : IArrClient
                 SizeLeft = GetLong(r, "sizeleft") ?? 0,
                 TrackedDownloadState = GetStr(r, "trackedDownloadState"),
                 TrackedDownloadStatus = GetStr(r, "trackedDownloadStatus"),
+                TimeLeftSeconds = GetTimeLeftSeconds(r),
             });
         }
         return list;
@@ -263,4 +264,10 @@ public sealed class ArrClient(HttpClient http) : IArrClient
         => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var i) ? i : null;
     private static bool? GetBool(JsonElement e, string name)
         => e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+
+    // *arr reports queue timeleft as "HH:MM:SS" or "d.HH:MM:SS"; absent/empty when it can't estimate.
+    private static double? GetTimeLeftSeconds(JsonElement e)
+        => e.TryGetProperty("timeleft", out var v) && v.ValueKind == JsonValueKind.String
+            && TimeSpan.TryParse(v.GetString(), System.Globalization.CultureInfo.InvariantCulture, out var ts)
+            ? ts.TotalSeconds : null;
 }

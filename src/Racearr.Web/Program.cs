@@ -104,7 +104,12 @@ builder.Services.AddSingleton(new RaceEngineState(options.DryRun));
 builder.Services.AddSingleton(_ => new RacearrMetrics(Metrics.DefaultFactory));
 builder.Services.AddSingleton<IEngineMetrics>(sp => sp.GetRequiredService<RacearrMetrics>());
 builder.Services.AddHttpClient<IArrClient, ArrClient>();
-builder.Services.AddHttpClient<IQbitClient, QbitClient>();
+// Download status source: qBittorrent is read directly (full fidelity); deluge/transmission (beta)
+// read through the *arr queue via ArrQueueProbe, so no per-client integration is needed.
+if (options.UsesArrQueueProbe)
+    builder.Services.AddSingleton<IQbitClient, ArrQueueProbe>();
+else
+    builder.Services.AddHttpClient<IQbitClient, QbitClient>();
 builder.Services.AddHttpClient<IConnectionTester, ConnectionTester>();
 builder.Services.AddSingleton<RaceEngine>();
 builder.Services.AddHostedService<RaceEngineHostedService>();

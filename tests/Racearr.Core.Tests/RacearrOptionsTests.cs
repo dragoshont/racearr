@@ -27,6 +27,20 @@ public class RacearrOptionsTests
     }
 
     [Fact]
+    public void TorrentClient_defaults_to_qbit_and_validates_known_clients()
+    {
+        Assert.Equal("qbittorrent", RacearrOptions.FromEnvironment(Env([])).TorrentClient);
+        Assert.False(RacearrOptions.FromEnvironment(Env([])).UsesArrQueueProbe);
+
+        Assert.Equal("deluge", RacearrOptions.FromEnvironment(Env(new() { ["TORRENT_CLIENT"] = "Deluge" })).TorrentClient);
+        Assert.True(RacearrOptions.FromEnvironment(Env(new() { ["TORRENT_CLIENT"] = "deluge" })).UsesArrQueueProbe);
+        Assert.Equal("transmission", RacearrOptions.FromEnvironment(Env(new() { ["TORRENT_CLIENT"] = "transmission" })).TorrentClient);
+
+        // An unknown client falls back to qBittorrent (direct) rather than an unusable state.
+        Assert.Equal("qbittorrent", RacearrOptions.FromEnvironment(Env(new() { ["TORRENT_CLIENT"] = "rtorrent" })).TorrentClient);
+    }
+
+    [Fact]
     public void Reads_overrides_trims_urls_lowercases_lists_and_parses_bools()
     {
         var o = RacearrOptions.FromEnvironment(Env(new()

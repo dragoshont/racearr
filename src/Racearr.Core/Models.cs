@@ -82,6 +82,8 @@ public sealed record QueueRecord
     public string? TrackedDownloadState { get; init; }
     /// <summary>Overall tracked-download health: <c>ok</c> / <c>warning</c> / <c>error</c> (null when unknown).</summary>
     public string? TrackedDownloadStatus { get; init; }
+    /// <summary>The *arr's estimated seconds remaining (<c>timeleft</c>); null when it can't estimate.</summary>
+    public double? TimeLeftSeconds { get; init; }
 }
 
 /// <summary>Outcome of asking an *arr instance to grab one release.</summary>

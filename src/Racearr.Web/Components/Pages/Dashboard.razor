@@ -131,6 +131,49 @@ else if (plexIssues.Count > 0)
     </MudStack>
 </MudPaper>
 
+@* ---- Torrent clients: qBittorrent (direct) + Deluge/Transmission (beta, via the *arr queue) ---- *@
+<MudPaper Class="pa-4 mb-6" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-1 flex-wrap">
+        <MudText Typo="Typo.subtitle1">Torrent clients</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">reading status from <strong>@ClientLabel(Options.TorrentClient)</strong></MudText>
+    </MudStack>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">racearr reads live download speed to decide what to race.</MudText>
+    <div class="d-flex flex-wrap" style="gap:10px">
+        @foreach (var c in Clients)
+        {
+            var active = string.Equals(Options.TorrentClient, c.Key, StringComparison.OrdinalIgnoreCase);
+            <MudPaper Outlined="true" Class="pa-3" Style="@($"min-width:170px;flex:0 0 auto;border-radius:12px;{(active ? "border-color:var(--mud-palette-primary)" : "")}")">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <img src="@($"/brands/{c.Key}.svg")" alt="@c.Name" class="brand-logo" />
+                    <div>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudText Typo="Typo.body2">@c.Name</MudText>
+                            @if (c.Beta)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="ma-0" Style="height:18px">beta</MudChip>
+                            }
+                            @if (active)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Class="ma-0" Style="height:18px">active</MudChip>
+                            }
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@c.Detail</MudText>
+                    </div>
+                </MudStack>
+            </MudPaper>
+        }
+    </div>
+    <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2" Class="mt-3 flex-nowrap">
+        <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Color="Color.Secondary" Class="mt-1" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary" Style="max-width:820px">
+            <strong>qBittorrent</strong> is read directly for real-time speed and private-tracker protection.
+            <strong>Deluge</strong> and <strong>Transmission</strong> (beta) are read through your Radarr / Sonarr
+            queue — no extra setup, but speed is estimated and private-tracker protection doesn't apply on that path.
+            Switch with the <code>TORRENT_CLIENT</code> environment variable.
+        </MudText>
+    </MudStack>
+</MudPaper>
+
 @* ---- Impact: the value racearr delivers ---- *@
 <MudText Typo="Typo.subtitle1" Class="mb-3">Impact</MudText>
 <MudGrid Spacing="3" Class="mb-6">
@@ -244,12 +287,23 @@ else if (plexIssues.Count > 0)
     private record Stage(string[] Brands, string Title, string Subtitle, string? Badge);
     private record Conn(string Label, string Budget);
     private record Stat(string Label, string Value, string Hint, string? Brand, string Icon, Color Color);
+    private record Client(string Key, string Name, bool Beta, string Detail);
+
+    private static readonly Client[] Clients =
+    [
+        new("qbittorrent", "qBittorrent", false, "direct · full fidelity"),
+        new("deluge", "Deluge", true, "via *arr queue"),
+        new("transmission", "Transmission", true, "via *arr queue"),
+    ];
+
+    private static string ClientLabel(string key)
+        => Clients.FirstOrDefault(c => string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase))?.Name ?? key;
 
     private Stage[] Stages =>
     [
         new(["plex", "overseerr"], "Requested", "Plex Watchlist · Seerr", null),
         new(["radarr", "sonarr"], "Grabbed", "Radarr · Sonarr", null),
-        new(["qbittorrent"], "Downloading & racing", "qBittorrent",
+        new([Options.TorrentClient], "Downloading & racing", ClientLabel(Options.TorrentClient),
             _snap.ActiveRaces > 0 ? $"{_snap.ActiveRaces} racing now" : null),
         new(["plex"], "In your library", "Ready in Plex", null),
     ];

@@ -17,6 +17,15 @@ public sealed class RacearrOptions
     public string? QbitUsername { get; init; }
     public string? QbitPassword { get; init; }
 
+    /// <summary>Which torrent client racearr races. <c>qbittorrent</c> reads live speed directly
+    /// (full fidelity); <c>deluge</c> / <c>transmission</c> (BETA) read status through the
+    /// Radarr/Sonarr queue instead — no per-client integration, at the cost of estimated speed and
+    /// no private-tracker protection on that path.</summary>
+    public string TorrentClient { get; init; } = "qbittorrent";
+
+    /// <summary>True when download status is read through the *arr queue rather than qBittorrent directly.</summary>
+    public bool UsesArrQueueProbe => !string.Equals(TorrentClient, "qbittorrent", StringComparison.OrdinalIgnoreCase);
+
     // ----- SLA contract (see ADR-0001; mirrors the Python defaults exactly) -----
     public int PollSeconds { get; init; } = 12;
     public int PickupSlaSeconds { get; init; } = 180;
@@ -97,6 +106,13 @@ public sealed class RacearrOptions
                 .Select(s => s.ToLowerInvariant())
                 .ToArray();
 
+        // Only the clients racearr recognises; anything else falls back to qBittorrent (direct).
+        static string NormalizeClient(string v)
+        {
+            var c = v.Trim().ToLowerInvariant();
+            return c is "qbittorrent" or "deluge" or "transmission" ? c : "qbittorrent";
+        }
+
         return new RacearrOptions
         {
             RadarrUrl = Str("RADARR_URL")?.TrimEnd('/'),
@@ -106,6 +122,7 @@ public sealed class RacearrOptions
             QbitUrl = (Str("QBIT_URL", "http://localhost:8080")!).TrimEnd('/'),
             QbitUsername = Str("QBIT_USERNAME"),
             QbitPassword = Str("QBIT_PASSWORD"),
+            TorrentClient = NormalizeClient(Str("TORRENT_CLIENT", "qbittorrent")!),
 
             PollSeconds = Int("POLL_SECONDS", 12),
             PickupSlaSeconds = Int("PICKUP_SLA_SECONDS", 180),

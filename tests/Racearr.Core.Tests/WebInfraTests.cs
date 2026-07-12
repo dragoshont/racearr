@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using Prometheus;
 using Racearr.Web;
 using Xunit;
@@ -35,6 +36,60 @@ public class WebInfraTests
         Assert.Contains("racearr_pickup_latency_seconds_bucket{le=\"600\"}", text);
         Assert.Contains("racearr_race_winner_mbps_bucket{le=\"0.5\"}", text);
         Assert.Contains("racearr_time_to_target_seconds_bucket{le=\"30\"}", text);
+    }
+
+    // Minimal IArrClient for the queue probe: only GetQueueAsync is exercised. A null queue simulates
+    // an unreachable *arr (a faulted call), so the probe must report the snapshot as unavailable.
+    private sealed class QueueOnlyArr(IReadOnlyList<QueueRecord>? queue) : IArrClient
+    {
+        public Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance i, CancellationToken ct)
+            => queue is null
+                ? Task.FromException<IReadOnlyList<QueueRecord>>(new HttpRequestException("arr down"))
+                : Task.FromResult(queue);
+        public Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<WantedItem>>([]);
+        public Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult<IReadOnlyList<Release>>([]);
+        public Task<ArrMutationResult> ForceSearchAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult(new ArrMutationResult(true));
+        public Task<GrabResult> GrabAsync(ArrInstance i, int id, Release r, CancellationToken ct) => Task.FromResult(new GrabResult(GrabOutcome.Accepted));
+        public Task<ArrMutationResult> DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct) => Task.FromResult(new ArrMutationResult(true));
+        public Task<LibraryStats> GetLibraryStatsAsync(ArrInstance i, CancellationToken ct) => Task.FromResult(new LibraryStats(i.Name, 0, 0));
+        public Task<PlexLinkStatus> GetPlexLinkStatusAsync(ArrInstance i, CancellationToken ct) => Task.FromResult(new PlexLinkStatus(i.Name, true, true, true, null));
+    }
+
+    [Fact]
+    public async Task ArrQueueProbe_MapsProgressEtaAndEstimatesSpeed_CollapsingSeasonPacks()
+    {
+        var options = new RacearrOptions { RadarrApiKey = "x", TorrentClient = "deluge" }; // radarr-only: no duplicate fetch
+        var queue = new List<QueueRecord>
+        {
+            new() { Id = 1, ItemId = 10, DownloadId = "h1", Title = "Movie.2024", Size = 1000, SizeLeft = 800, TrackedDownloadState = "downloading", TimeLeftSeconds = 8 },
+            // A season pack shows one row per episode with the SAME hash -> must collapse to one torrent.
+            new() { Id = 2, ItemId = 20, DownloadId = "h2", Title = "Show.S01", Size = 2000, SizeLeft = 1000, TimeLeftSeconds = 20 },
+            new() { Id = 3, ItemId = 21, DownloadId = "h2", Title = "Show.S01", Size = 2000, SizeLeft = 1000, TimeLeftSeconds = 20 },
+        };
+        var probe = new ArrQueueProbe(new QueueOnlyArr(queue), options, NullLogger<ArrQueueProbe>.Instance);
+
+        var snap = await probe.GetByHashAsync(CancellationToken.None);
+
+        Assert.True(snap.Available);
+        Assert.Equal(2, snap.Items.Count);
+        var h1 = snap.Items["h1"];
+        Assert.Equal("Movie.2024", h1.Name);
+        Assert.Equal(0.2, h1.Progress, 3);          // 1 - 800/1000
+        Assert.Equal(100d, h1.DlSpeed, 3);          // first-tick estimate: 800 bytes remaining / 8s
+        Assert.Equal(8L, h1.Eta);
+        Assert.Equal("downloading", h1.State);
+        Assert.Equal("", h1.Tracker);               // queue path can't provide tracker (the beta limitation)
+    }
+
+    [Fact]
+    public async Task ArrQueueProbe_ReportsUnavailable_WhenNoArrAnswers()
+    {
+        var options = new RacearrOptions { RadarrApiKey = "x", TorrentClient = "transmission" };
+        var probe = new ArrQueueProbe(new QueueOnlyArr(null), options, NullLogger<ArrQueueProbe>.Instance);
+
+        var snap = await probe.GetByHashAsync(CancellationToken.None);
+
+        Assert.False(snap.Available); // never fabricate zero-speed torrents when the *arr is unreachable
     }
 
     private sealed class StubHandler(string json) : HttpMessageHandler
