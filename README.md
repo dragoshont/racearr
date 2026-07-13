@@ -1,24 +1,27 @@
 # racearr
 
-**Aggressive download racer + hard pickup/speed SLAs for the \*arr stack.**
+**The *fast lane* for your \*arr downloads: when a grab is slow, racearr races
+several well-seeded alternates in parallel and keeps the fastest — it's not a
+strike-and-remove cleaner.**
 
 Radarr and Sonarr grab exactly **one** release per item and rank candidates by
 *custom-format score* — **not by seeders**. So a "high quality" release with 3
-seeders can win and then crawl for hours, and nothing steps in fast. `racearr`
-fixes that: it enforces two hard SLAs and, when a download is slow, **races
-several high-seeded alternates in parallel and keeps the fastest**, killing the
-rest.
+seeders can win and then crawl for hours, and nothing steps in fast. The usual
+tools (swaparr, cleanuparr, decluttarr) *strike and remove* the slow download and
+let the arr re-search **one** replacement, sequentially — minutes to hours.
+`racearr` is the fast lane: it enforces two hard SLAs and, when a download is
+slow, **force-grabs up to N high-seeded same-quality alternates at once, races
+them, and keeps the fastest — killing the losers**. Seconds, not strike cycles.
 
-It's a compact **.NET 10 / ASP.NET Core** service — rewritten from the original
-stdlib-only Python — that drives everything through the Radarr/Sonarr APIs and reads
-qBittorrent **read-only** for live speeds, persisting its tunable settings and race
-history in a local **SQLite** database.
+It's a compact **.NET 10 / ASP.NET Core** service that drives everything through
+the Radarr/Sonarr APIs and reads qBittorrent **read-only** for live speeds,
+persisting its tunable settings and race history in a local **SQLite** database.
 
-> **Status:** the `rewrite-dotnet` branch is a phased .NET 10 rewrite (see
-> [ADR-0001](docs/adr/0001-dotnet-rewrite.md)); build and test with `dotnet`, and the container
-> needs a writable `/config` volume for its SQLite database. Works with Radarr v3+ / Sonarr v3+ and
-> qBittorrent v4.1+ (WebUI API v2). Torrents only. Starts in `DRY_RUN` — it watches and logs what it
-> *would* do until you arm it. Some sections below still describe the original Python service.
+> **Status:** production — the .NET 10 service runs on `main` and supersedes the
+> original stdlib-only Python (see [ADR-0001](docs/adr/0001-dotnet-rewrite.md)).
+> Multi-arch images (amd64 + arm64) are published at `ghcr.io/dragoshont/racearr`.
+> Works with Radarr v3+ / Sonarr v3+ and qBittorrent v4.1+ (WebUI API v2). Torrents
+> only. Starts in `DRY_RUN` — it watches and logs what it *would* do until you arm it.
 
 ---
 
@@ -189,6 +192,7 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `SONARR_URL` / `SONARR_API_KEY` | `http://localhost:8989` / — | Sonarr; the API key enables it |
 | `QBIT_URL` | `http://localhost:8080` | qBittorrent WebUI (read-only) |
 | `QBIT_USERNAME` / `QBIT_PASSWORD` | — | qBit login (omit if auth is bypassed for this client) |
+| `TORRENT_CLIENT` | `qbittorrent` | `qbittorrent` (native, full live-speed fidelity) or `deluge` / `transmission` (**beta**: status read via the \*arr queue — estimated speed, no private-tracker protection on that path) |
 | `DRY_RUN` | `true` | Observe-and-log only. Set `false` to arm. **Kill switch.** |
 | `POLL_SECONDS` | `12` | Control-loop interval |
 | `PICKUP_SLA_SECONDS` | `180` | Grab-within deadline before a pickup incident |
@@ -222,6 +226,20 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
   - Known label sets are pre-registered at `0`, so dashboards render clean zeros before the first event fires.
 - A starter Grafana dashboard ships in [`deploy/grafana/racearr-dashboard.json`](deploy/grafana/racearr-dashboard.json) (expects a Prometheus datasource `uid: prometheus`; the logs panel expects a Loki datasource `uid: loki`).
 - Every incident and every GRAB/KILL is logged.
+
+---
+
+## Access & authentication
+
+racearr has **no built-in login** — like the \*arr apps themselves, its web UI is
+open on its port and is meant to sit behind your reverse proxy. It integrates
+cleanly with **Authentik** (or any forward-auth provider): put racearr behind the
+same SSO you already use for Sonarr/Radarr and it's protected. racearr also reads
+Authentik's `X-authentik-*` forward-auth headers to **display** the signed-in user
+in the UI — informational only; the ingress enforces access, and in-cluster callers
+(Prometheus `/metrics`, `/healthz`, `/status`, the Seerr webhook) simply arrive
+anonymous. Authentik is **not required**: without a proxy the UI is open, exactly
+like an unproxied Sonarr/Radarr.
 
 ---
 
@@ -270,8 +288,11 @@ the fast path.
   try alternates and then keep the best available — which may still be slow.
 - **Import speed is out of scope.** racearr gets a title *downloading* fast; how quickly the
   finished file is imported/moved into your library is your \*arr + storage setup.
-- **Torrents only** (it reasons about seeders and qBittorrent). No Usenet.
-- **Season packs** are monitored but not raced (racing is per single-episode grab).
+- **Torrents only** (it reasons about seeders and qBittorrent live speed). No Usenet.
+- **Season packs aren't *raced*** (racing is per single-episode grab) — but a dead
+  or stalled season pack (one torrent → many episodes, vanished from the client or
+  stuck with no seeds) is **blocklisted and re-searched at the season level**, so it
+  no longer sits forever.
 
 ## Contributing
 
