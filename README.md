@@ -246,25 +246,37 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `INCIDENT_WEBHOOK_URL` | — | Incident webhook. **Discord** URLs are auto-detected and sent as `{"content":…}`; Slack/Mattermost/generic get `{"text":…}` |
 | `NTFY_URL` / `NTFY_TOPIC` | — | Push incidents to [ntfy](https://ntfy.sh) (both required to enable) |
 | `NTFY_TOKEN` / `NTFY_PRIORITY` | — | Optional ntfy access token (Bearer) and priority (`min`..`urgent`) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | — | Send incidents via a Telegram bot (both required) |
+| `GOTIFY_URL` / `GOTIFY_TOKEN` | — | Push incidents to [Gotify](https://gotify.net) (optional `GOTIFY_PRIORITY`, default `5`) |
+| `PUSHOVER_TOKEN` / `PUSHOVER_USER` | — | Send incidents via [Pushover](https://pushover.net) (optional `PUSHOVER_PRIORITY`, `-2`..`2`) |
+| `APPRISE_URL` | — | POST incidents to an [Apprise](https://github.com/caronc/apprise-api) endpoint (one URL → 100+ services; optional `APPRISE_TAG`) |
 | `ARR_INSTANCES` | — | Extra \*arr instances beyond the primary, `;`-separated as `kind\|url\|apikey\|label` (see below) |
 | `HEALTH_PORT` | `9797` | Port for the web UI, `/healthz`, `/status`, and `/metrics` |
 | `DB_PATH` | `/config/racearr.db` | SQLite file for settings + race history (must be an absolute path) |
 | `WEBHOOK_TOKEN` | — | Optional shared secret; when set, `POST /api/webhook/seerr` requires header `X-Webhook-Token` |
+| `AUTH_PROXY` | `authentik` | Forward-auth scheme for the signed-in-user **display** only: `authentik`/`authelia`/`oauth2-proxy`/`tinyauth`/`traefik`/`generic`/`custom`/`none` (see [Access & authentication](#access--authentication)) |
 | `LOG_LEVEL` | `INFO` | `INFO` / `DEBUG` |
 
-### Notifications (Discord / ntfy)
+### Notifications
 
 racearr posts a short message on every incident (a pickup breach, a race, a dead
-season pack). Configure any combination:
+season pack). Every channel is **optional, off by default, and combinable**, and
+delivery is fire-and-forget — a dead or slow endpoint never stalls or crashes the racer.
 
-- **Discord** — paste a channel webhook into `INCIDENT_WEBHOOK_URL`; it's
-  auto-detected and delivered as a Discord message.
-- **ntfy** — set `NTFY_URL` (e.g. `https://ntfy.sh`) + `NTFY_TOPIC`; add
-  `NTFY_TOKEN` for a protected topic and `NTFY_PRIORITY` to taste.
-- **Slack / Mattermost / anything else** — point `INCIDENT_WEBHOOK_URL` at the
-  incoming-webhook URL and racearr sends `{"text": …}`.
+- **Discord** — paste a channel webhook into `INCIDENT_WEBHOOK_URL` (auto-detected).
+- **Slack / Mattermost / generic** — point `INCIDENT_WEBHOOK_URL` at the incoming
+  webhook; racearr sends `{"text": …}`.
+- **ntfy** — `NTFY_URL` (e.g. `https://ntfy.sh`) + `NTFY_TOPIC` (+ optional
+  `NTFY_TOKEN`, `NTFY_PRIORITY`).
+- **Telegram** — `TELEGRAM_BOT_TOKEN` (from @BotFather) + `TELEGRAM_CHAT_ID`.
+- **Gotify** — `GOTIFY_URL` + `GOTIFY_TOKEN` (+ optional `GOTIFY_PRIORITY`).
+- **Pushover** — `PUSHOVER_TOKEN` + `PUSHOVER_USER` (+ optional `PUSHOVER_PRIORITY`).
+- **Apprise** — `APPRISE_URL` (one [Apprise](https://github.com/caronc/apprise-api)
+  endpoint fans out to 100+ services; optional `APPRISE_TAG`).
 
-Delivery is fire-and-forget — a dead or slow webhook never stalls or crashes the racer.
+Notification tokens are read from the environment only, never persisted to the
+database. Adding another channel is a single guarded block in
+`IncidentNotifications.Build` plus its options.
 
 ### Multiple Radarr / Sonarr instances
 
@@ -297,14 +309,24 @@ labels, so existing dashboards keep working unchanged.
 ## Access & authentication
 
 racearr has **no built-in login** — like the \*arr apps themselves, its web UI is
-open on its port and is meant to sit behind your reverse proxy. It integrates
-cleanly with **Authentik** (or any forward-auth provider): put racearr behind the
-same SSO you already use for Sonarr/Radarr and it's protected. racearr also reads
-Authentik's `X-authentik-*` forward-auth headers to **display** the signed-in user
-in the UI — informational only; the ingress enforces access, and in-cluster callers
-(Prometheus `/metrics`, `/healthz`, `/status`, the Seerr webhook) simply arrive
-anonymous. Authentik is **not required**: without a proxy the UI is open, exactly
-like an unproxied Sonarr/Radarr.
+open on its port and is meant to sit behind your reverse proxy. Put it behind the
+same forward-auth / SSO you already use for Sonarr/Radarr and it's protected.
+
+racearr can also **display** the signed-in user in the UI (informational only) by
+reading your proxy's forward-auth headers. Point `AUTH_PROXY` at your provider:
+
+| `AUTH_PROXY` | Headers read |
+|---|---|
+| `authentik` (default) | `X-authentik-username` / `-name` / `-email` / `-groups` |
+| `authelia`, `tinyauth`, `traefik`, `generic` | `Remote-User` / `Remote-Name` / `Remote-Email` / `Remote-Groups` |
+| `oauth2-proxy` | `X-Forwarded-User` / `-Preferred-Username` / `-Email` / `-Groups` |
+| `custom` | your `AUTH_PROXY_USER_HEADER` / `_NAME_HEADER` / `_EMAIL_HEADER` / `_GROUPS_HEADER` |
+| `none` | identity display disabled |
+
+This is **display only** — racearr enforces nothing; the proxy at the ingress is the
+real gate, and in-cluster callers (Prometheus `/metrics`, `/healthz`, `/status`, the
+Seerr webhook) simply arrive anonymous. **A proxy is not required**: with `none` the
+UI is open exactly like an unproxied Sonarr/Radarr, and racearr runs identically.
 
 ---
 

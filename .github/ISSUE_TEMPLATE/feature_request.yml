@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an improvement or a new integration.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The concrete situation you hit, not just the proposed solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What racearr should do. For a new integration (download client, notification channel, auth proxy), name it and link its API docs.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything you've already tried or ruled out.

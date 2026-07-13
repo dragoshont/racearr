@@ -79,8 +79,47 @@ public sealed class RacearrOptions
     /// <summary>Optional ntfy priority (<c>1</c>..<c>5</c> / <c>min</c>..<c>urgent</c>).</summary>
     public string? NtfyPriority { get; init; }
 
+    // ----- additional notification channels (all optional + off by default; tokens stay env-only) -----
+    /// <summary>Telegram bot token (from @BotFather). With <see cref="TelegramChatId"/>, incidents are
+    /// sent via the Telegram Bot API.</summary>
+    public string? TelegramBotToken { get; init; }
+    /// <summary>Telegram chat id (a user/group id, or <c>@channelname</c>).</summary>
+    public string? TelegramChatId { get; init; }
+
+    /// <summary>Gotify server base URL (e.g. <c>https://gotify.example.com</c>). With <see cref="GotifyToken"/>,
+    /// incidents are pushed to Gotify.</summary>
+    public string? GotifyUrl { get; init; }
+    /// <summary>Gotify application token.</summary>
+    public string? GotifyToken { get; init; }
+    /// <summary>Gotify message priority (0..10).</summary>
+    public int GotifyPriority { get; init; } = 5;
+
+    /// <summary>Pushover application/API token. With <see cref="PushoverUser"/>, incidents are sent to Pushover.</summary>
+    public string? PushoverToken { get; init; }
+    /// <summary>Pushover user (or group) key.</summary>
+    public string? PushoverUser { get; init; }
+    /// <summary>Optional Pushover priority (<c>-2</c>..<c>2</c>).</summary>
+    public string? PushoverPriority { get; init; }
+
+    /// <summary>Apprise API notify endpoint (e.g. <c>http://apprise:8000/notify/&lt;key&gt;</c>) — one URL
+    /// fans incidents out to 100+ services. See github.com/caronc/apprise-api.</summary>
+    public string? AppriseUrl { get; init; }
+    /// <summary>Optional Apprise tag to route the notification within the Apprise config.</summary>
+    public string? AppriseTag { get; init; }
+
     /// <summary>Optional shared secret required on the Seerr webhook endpoint (env-only, never persisted).</summary>
     public string? WebhookToken { get; init; }
+
+    // ----- reverse-proxy identity display (optional; racearr runs fully anonymous without it) -----
+    /// <summary>Which forward-auth header scheme to read the signed-in identity from (DISPLAY ONLY).
+    /// One of <c>authentik</c> (default), <c>authelia</c>, <c>oauth2-proxy</c>, <c>tinyauth</c>,
+    /// <c>traefik</c>, <c>generic</c>, <c>custom</c>, or <c>none</c>. <c>custom</c> uses the
+    /// <c>AUTH_PROXY_*_HEADER</c> overrides; any preset can also be overridden per-header.</summary>
+    public string AuthProxy { get; init; } = "authentik";
+    public string? AuthProxyUserHeader { get; init; }
+    public string? AuthProxyNameHeader { get; init; }
+    public string? AuthProxyEmailHeader { get; init; }
+    public string? AuthProxyGroupsHeader { get; init; }
 
     /// <summary>Additional *arr instances beyond the primary Radarr/Sonarr, parsed from <c>ARR_INSTANCES</c>
     /// (<c>kind|url|apikey|label;…</c>). Lets racearr race across e.g. a 1080p and a 4K Radarr at once.</summary>
@@ -89,6 +128,30 @@ public sealed class RacearrOptions
     /// <summary>True if at least one *arr instance is configured (a primary API key or an extra instance).</summary>
     public bool HasAnyInstance =>
         !string.IsNullOrWhiteSpace(RadarrApiKey) || !string.IsNullOrWhiteSpace(SonarrApiKey) || ExtraArrInstances.Count > 0;
+
+    /// <summary>Resolve the forward-auth header names for <see cref="AuthProxy"/> (with per-header
+    /// overrides applied). Returns <c>null</c> when identity display is disabled (<c>AUTH_PROXY=none</c>)
+    /// or no usable username header is configured.</summary>
+    public ForwardAuthHeaders? ResolveForwardAuthHeaders()
+    {
+        var proxy = (AuthProxy ?? "authentik").Trim().ToLowerInvariant();
+        if (proxy == "none") return null;
+        var (u, n, e, g) = proxy switch
+        {
+            "authelia" or "tinyauth" or "traefik" or "generic"
+                => ("Remote-User", "Remote-Name", "Remote-Email", "Remote-Groups"),
+            "oauth2-proxy" or "oauth2proxy"
+                => ("X-Forwarded-User", "X-Forwarded-Preferred-Username", "X-Forwarded-Email", "X-Forwarded-Groups"),
+            "custom"
+                => ("", "", "", ""),
+            _ /* authentik (default) */
+                => ("X-authentik-username", "X-authentik-name", "X-authentik-email", "X-authentik-groups"),
+        };
+        var user = AuthProxyUserHeader ?? u;
+        return string.IsNullOrWhiteSpace(user)
+            ? null
+            : new ForwardAuthHeaders(user, AuthProxyNameHeader ?? n, AuthProxyEmailHeader ?? e, AuthProxyGroupsHeader ?? g);
+    }
 
     /// <summary>
     /// Build options from an environment getter (defaults to the process environment).
@@ -170,7 +233,22 @@ public sealed class RacearrOptions
             NtfyTopic = Str("NTFY_TOPIC"),
             NtfyToken = Str("NTFY_TOKEN"),
             NtfyPriority = Str("NTFY_PRIORITY"),
+            TelegramBotToken = Str("TELEGRAM_BOT_TOKEN"),
+            TelegramChatId = Str("TELEGRAM_CHAT_ID"),
+            GotifyUrl = Str("GOTIFY_URL")?.TrimEnd('/'),
+            GotifyToken = Str("GOTIFY_TOKEN"),
+            GotifyPriority = Int("GOTIFY_PRIORITY", 5),
+            PushoverToken = Str("PUSHOVER_TOKEN"),
+            PushoverUser = Str("PUSHOVER_USER"),
+            PushoverPriority = Str("PUSHOVER_PRIORITY"),
+            AppriseUrl = Str("APPRISE_URL")?.TrimEnd('/'),
+            AppriseTag = Str("APPRISE_TAG"),
             WebhookToken = Str("WEBHOOK_TOKEN"),
+            AuthProxy = Str("AUTH_PROXY", "authentik")!,
+            AuthProxyUserHeader = Str("AUTH_PROXY_USER_HEADER"),
+            AuthProxyNameHeader = Str("AUTH_PROXY_NAME_HEADER"),
+            AuthProxyEmailHeader = Str("AUTH_PROXY_EMAIL_HEADER"),
+            AuthProxyGroupsHeader = Str("AUTH_PROXY_GROUPS_HEADER"),
             ExtraArrInstances = ParseExtraInstances(Str("ARR_INSTANCES")),
         };
     }
@@ -228,3 +306,7 @@ public sealed class RacearrOptions
         };
     }
 }
+
+/// <summary>The reverse-proxy header names that carry the signed-in identity (display only). An empty
+/// <see cref="Name"/>/<see cref="Email"/>/<see cref="Groups"/> means that field is not read.</summary>
+public sealed record ForwardAuthHeaders(string User, string Name, string Email, string Groups);

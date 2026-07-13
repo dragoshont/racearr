@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in racearr isn't working as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please confirm it isn't a configuration issue first, and
+        **redact API keys / passwords** from any logs or config you paste.
+  - type: input
+    id: version
+    attributes:
+      label: racearr version
+      description: The image tag you're running (e.g. `1.10.0`, `latest`, or a commit SHA).
+      placeholder: "1.10.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker Compose
+        - Kubernetes
+        - Unraid
+        - Other / from source
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Torrent client
+      options:
+        - qBittorrent
+        - Deluge (beta)
+        - Transmission (beta)
+    validations:
+      required: true
+  - type: input
+    id: dryrun
+    attributes:
+      label: DRY_RUN value
+      description: Was racearr armed (`false`) or observe-only (`true`)?
+      placeholder: "true"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Container logs around the problem. Redact secrets.
+      render: shell
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: The env vars you set (redact API keys and the qBittorrent password).
+      render: shell
