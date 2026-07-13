@@ -93,4 +93,26 @@ public class RuntGuardDecisionTests
         Assert.False(RaceDecisions.ShouldStartRaceStalled(60, anyStalledDead: false, inCooldown: false, o)); // not stalled
         Assert.False(RaceDecisions.ShouldStartRaceStalled(60, anyStalledDead: true, inCooldown: true, o));   // cooling down
     }
+
+    [Theory]
+    [InlineData("stalledDL", 0, true)]    // stalled + peerless -> dead
+    [InlineData("metaDL", 0, true)]
+    [InlineData("downloading", 0, false)] // live -> not dead
+    [InlineData("stalledDL", 5, false)]   // stalled but has seeds -> may recover, not dead
+    public void IsDownloadDead_PresentTorrent_MatchesStalledDead(string state, int seeds, bool expected)
+        => Assert.Equal(expected, RaceDecisions.IsDownloadDead(new TorrentInfo { State = state, NumSeeds = seeds }));
+
+    [Fact]
+    public void IsDownloadDead_MissingTorrent_IsDead() // orphaned: hash absent from the client snapshot
+        => Assert.True(RaceDecisions.IsDownloadDead(null));
+
+    [Fact]
+    public void ShouldRemediatePack_FiresOnlyWhenDeadPastFuseAndNotCoolingDown()
+    {
+        var o = new RacearrOptions { RaceStallSeconds = 45 };
+        Assert.True(RaceDecisions.ShouldRemediatePack(60, dead: true, inCooldown: false, o));
+        Assert.False(RaceDecisions.ShouldRemediatePack(30, dead: true, inCooldown: false, o));  // before the fuse
+        Assert.False(RaceDecisions.ShouldRemediatePack(60, dead: false, inCooldown: false, o)); // not dead
+        Assert.False(RaceDecisions.ShouldRemediatePack(60, dead: true, inCooldown: true, o));   // cooling down
+    }
 }

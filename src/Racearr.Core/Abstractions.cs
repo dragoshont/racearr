@@ -11,6 +11,9 @@ public interface IArrClient
     Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance inst, CancellationToken ct);
     Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance inst, int itemId, CancellationToken ct);
     Task<ArrMutationResult> ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct);
+    /// <summary>Force a Sonarr season-pack search — the pack-correct replacement for a dead season pack
+    /// (a pack is never raced episode-by-episode). Returns failure for Radarr, which has no seasons.</summary>
+    Task<ArrMutationResult> SeasonSearchAsync(ArrInstance inst, int seriesId, int seasonNumber, CancellationToken ct);
     /// <summary>Force-grab a release (bypasses the "already meets cutoff" auto-rejection). Returns success.</summary>
     Task<GrabResult> GrabAsync(ArrInstance inst, int itemId, Release release, CancellationToken ct);
     /// <summary>Remove a queue record; <paramref name="removeFromClient"/> also deletes + blocklists the torrent.</summary>

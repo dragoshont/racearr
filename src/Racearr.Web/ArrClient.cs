@@ -48,6 +48,9 @@ public sealed class ArrClient(HttpClient http) : IArrClient
                 TrackedDownloadState = GetStr(r, "trackedDownloadState"),
                 TrackedDownloadStatus = GetStr(r, "trackedDownloadStatus"),
                 TimeLeftSeconds = GetTimeLeftSeconds(r),
+                // Sonarr queue rows carry seriesId/seasonNumber; Radarr has neither (movies aren't packs).
+                SeriesId = inst.Kind == ArrKind.Sonarr ? GetInt(r, "seriesId") : null,
+                SeasonNumber = inst.Kind == ArrKind.Sonarr ? GetInt(r, "seasonNumber") : null,
             });
         }
         return list;
@@ -153,6 +156,17 @@ public sealed class ArrClient(HttpClient http) : IArrClient
     public async Task<ArrMutationResult> ForceSearchAsync(ArrInstance inst, int itemId, CancellationToken ct)
     {
         var body = new Dictionary<string, object> { ["name"] = inst.SearchCommand, [inst.SearchIdsField] = new[] { itemId } };
+        var req = Build(HttpMethod.Post, inst, "command");
+        req.Content = JsonContent.Create(body);
+        using var resp = await http.SendAsync(req, ct);
+        return new ArrMutationResult(resp.IsSuccessStatusCode, (int)resp.StatusCode);
+    }
+
+    public async Task<ArrMutationResult> SeasonSearchAsync(ArrInstance inst, int seriesId, int seasonNumber, CancellationToken ct)
+    {
+        // Sonarr-only: a whole-season search (grabs a fresh pack or singles). Radarr has no seasons.
+        if (inst.Kind != ArrKind.Sonarr) return new ArrMutationResult(false, null);
+        var body = new Dictionary<string, object> { ["name"] = "SeasonSearch", ["seriesId"] = seriesId, ["seasonNumber"] = seasonNumber };
         var req = Build(HttpMethod.Post, inst, "command");
         req.Content = JsonContent.Create(body);
         using var resp = await http.SendAsync(req, ct);

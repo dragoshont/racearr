@@ -154,6 +154,24 @@ public static class RaceDecisions
     public static bool ShouldStartRaceStalled(double oldestAgeSeconds, bool anyStalledDead, bool inCooldown, RacearrOptions o)
         => anyStalledDead && oldestAgeSeconds >= o.RaceStallSeconds && !inCooldown;
 
+    /// <summary>
+    /// A download is "dead" — it cannot make progress on its own and needs replacing — when either the
+    /// download client no longer knows the torrent (<paramref name="t"/> is null: removed / orphaned
+    /// under the *arr's feet, which <see cref="IsStalledDead"/> alone never catches) or the torrent is
+    /// definitively stalled / metadata-stuck with no connected seeds. Only meaningful when the client
+    /// snapshot is available — an unavailable snapshot must never mark everything dead. Pure/side-effect-free.
+    /// </summary>
+    public static bool IsDownloadDead(TorrentInfo? t) => t is null || IsStalledDead(t);
+
+    /// <summary>
+    /// Whether a non-baseline season pack should be blocklisted and re-searched at the season level. A
+    /// pack (one torrent -> many episodes) is never raced episode-by-episode; when its single torrent has
+    /// been dead continuously for at least <c>RaceStallSeconds</c> and it is not in cooldown, the correct
+    /// replacement is a fresh season search. Pure/side-effect-free.
+    /// </summary>
+    public static bool ShouldRemediatePack(double deadForSeconds, bool dead, bool inCooldown, RacearrOptions o)
+        => dead && deadForSeconds >= o.RaceStallSeconds && !inCooldown;
+
     /// <summary>Race outcome label: whether the kept (fastest) candidate reached the target speed.</summary>
     public static string RaceOutcome(bool haveWinner)
         => haveWinner ? "won_target" : "kept_below_target";

@@ -37,6 +37,7 @@ public sealed class RaceEngine
     private readonly HashSet<string> _baselineWanted = new();                // wanted keys present at startup
     private readonly HashSet<string> _primedInstances = new();               // complete per-instance baselines
     private readonly HashSet<string> _reaped = new();                        // fake download-ids already reported (avoid dup incidents)
+    private readonly Dictionary<string, PackState> _packs = new();           // season-pack remediation state (dead-since + cooldown), keyed "inst:pack:series:season"
     private bool _stateLoaded;
 
     public RaceEngine(
@@ -185,6 +186,11 @@ public sealed class RaceEngine
             _raceStart.Remove(staleRace);
 
         var activeRaces = _raceStart.Keys.Count(k => k.StartsWith(inst.Name + ":", StringComparison.Ordinal));
+
+        // ---- SEASON-PACK REMEDIATION: a pack (one torrent -> many episodes) is never raced
+        // episode-by-episode; when its single torrent is dead (orphaned from the client or stalled with
+        // no seeds) the pack-correct fix is to blocklist it and re-search the whole season. ----
+        await RemediateDeadPacksAsync(inst, groups, hashToItems, qbt, now, ct);
 
         foreach (var (iid, recs) in groups)
         {
@@ -612,6 +618,112 @@ public sealed class RaceEngine
         }
     }
 
+    /// <summary>
+    /// Season-pack remediation. A pack (one torrent -> many episodes) is never raced episode-by-episode;
+    /// when its single torrent is dead — orphaned from the client (hash absent from the snapshot) or
+    /// stalled with no seeds — continuously for the stall fuse, blocklist every pack record and force a
+    /// fresh season search so the *arr grabs a different release. Honours DRY_RUN, baseline protection and
+    /// the race cooldown; Sonarr-only (Radarr movies are never packs).
+    /// </summary>
+    private async Task RemediateDeadPacksAsync(
+        ArrInstance inst,
+        IReadOnlyDictionary<int, List<QueueRecord>> groups,
+        IReadOnlyDictionary<string, HashSet<int>> hashToItems,
+        IReadOnlyDictionary<string, TorrentInfo> qbt,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var seen = new HashSet<string>();
+        foreach (var (dlid, itemIds) in hashToItems)
+        {
+            if (itemIds.Count <= 1) continue;              // singles are raced, not season-remediated
+            if (_baselineDl.Contains(dlid)) continue;       // never manage the pre-existing backlog
+
+            var packRecs = new List<QueueRecord>();
+            foreach (var iid in itemIds)
+                if (groups.TryGetValue(iid, out var g))
+                    foreach (var r in g)
+                        if (r.DownloadId.Equals(dlid, StringComparison.OrdinalIgnoreCase)) packRecs.Add(r);
+            if (packRecs.Count == 0) continue;
+
+            var head = packRecs[0];
+            if (head.SeriesId is not int seriesId || head.SeasonNumber is not int seasonNumber) continue; // Sonarr-only
+
+            var key = $"{inst.Name}:pack:{seriesId}:{seasonNumber}";
+            seen.Add(key);
+            if (!_packs.TryGetValue(key, out var pstate)) pstate = _packs[key] = new PackState();
+
+            qbt.TryGetValue(dlid, out var t);
+            var dead = RaceDecisions.IsDownloadDead(t);
+            if (dead) pstate.DeadSinceUtc ??= now;
+            else { pstate.DeadSinceUtc = null; pstate.LastIncidentType = null; }
+
+            var deadFor = pstate.DeadSinceUtc is DateTimeOffset ds ? (now - ds).TotalSeconds : 0;
+            var inCooldown = pstate.NextEligibleUtc is DateTimeOffset ne && now < ne;
+            if (RaceDecisions.ShouldRemediatePack(deadFor, dead, inCooldown, _o))
+                await RemediateDeadPackAsync(inst, seriesId, seasonNumber, packRecs, t, pstate, now, ct);
+        }
+
+        // Drop state for packs no longer present in this instance's queue.
+        foreach (var stale in _packs.Keys
+            .Where(k => k.StartsWith(inst.Name + ":pack:", StringComparison.Ordinal) && !seen.Contains(k)).ToList())
+            _packs.Remove(stale);
+    }
+
+    private async Task RemediateDeadPackAsync(
+        ArrInstance inst, int seriesId, int seasonNumber, IReadOnlyList<QueueRecord> packRecs,
+        TorrentInfo? torrent, PackState pstate, DateTimeOffset now, CancellationToken ct)
+    {
+        var label = $"{inst.Name} S{seasonNumber:00} pack (series {seriesId})";
+        var why = torrent is null ? "orphaned from client" : $"stalled ({torrent.State}, no seeds)";
+        if (pstate.LastIncidentType != "season_pack_dead")
+        {
+            Incident("season_pack_dead",
+                $"{label} '{Trunc(packRecs[0].Title, 50)}' is dead — {why} — blocklisting {packRecs.Count} record(s) + season re-search",
+                inst.Name, seriesId);
+            _events.Record(new RaceEvent { Kind = "season_pack_dead", Instance = inst.Name, ItemId = seriesId, Detail = Trunc(packRecs[0].Title, 60) });
+            pstate.LastIncidentType = "season_pack_dead";
+        }
+
+        if (_o.DryRun)
+        {
+            _log.LogInformation("[dry-run] would blocklist {N} pack record(s) + SeasonSearch {Label}", packRecs.Count, label);
+            _events.Record(new RaceEvent { Kind = "season_remediation", Instance = inst.Name, ItemId = seriesId, Outcome = "dry_run", Detail = label });
+            pstate.NextEligibleUtc = now.AddSeconds(_o.RaceCooldownSeconds);
+            return;
+        }
+
+        var removedAll = true;
+        foreach (var rec in packRecs)
+        {
+            ArrMutationResult res;
+            try { res = await _arr.DeleteQueueAsync(inst, rec.Id, removeFromClient: true, blocklist: true, ct); }
+            catch (Exception ex) { _log.LogWarning(ex, "season remediation: delete failed ({Label} rec {Id})", label, rec.Id); removedAll = false; continue; }
+            // A 404 means the record already vanished (the torrent removal cascaded) — success for us.
+            removedAll &= res.Succeeded || res.StatusCode == 404;
+        }
+
+        if (!removedAll)
+        {
+            _log.LogWarning("season remediation: not every pack record was removed for {Label}; retrying after cooldown", label);
+            pstate.NextEligibleUtc = now.AddSeconds(_o.RaceCooldownSeconds);
+            return;
+        }
+
+        var searched = await _arr.SeasonSearchAsync(inst, seriesId, seasonNumber, ct);
+        _events.Record(new RaceEvent
+        {
+            Kind = "season_remediation", Instance = inst.Name, ItemId = seriesId,
+            Outcome = searched.Succeeded ? "searched" : "search_failed", Detail = label,
+        });
+        if (searched.Succeeded)
+            _log.LogInformation("SEASON RE-SEARCH {Label} (blocklisted dead pack, grabbing a replacement)", label);
+        else
+            _log.LogWarning("season remediation: SeasonSearch failed for {Label} HTTP {Status}", label, searched.StatusCode);
+
+        pstate.NextEligibleUtc = now.AddSeconds(_o.RaceCooldownSeconds);
+        pstate.DeadSinceUtc = null;
+    }
+
     private void Incident(string type, string message, string? instance = null, int? itemId = null)
     {
         _state.AddIncident();
@@ -629,6 +741,14 @@ public sealed class RaceEngine
         public double MaxSpeed { get; set; }
         public string Kind { get; init; } = "";
         public DateTimeOffset? TargetHit { get; set; }
+    }
+
+    // Season-pack remediation bookkeeping (in-memory; a restart re-primes the baseline that supersedes it).
+    private sealed class PackState
+    {
+        public DateTimeOffset? DeadSinceUtc { get; set; }   // first tick the pack's torrent was observed dead (reset when alive)
+        public DateTimeOffset? NextEligibleUtc { get; set; } // cooldown after a remediation attempt
+        public string? LastIncidentType { get; set; }
     }
 
     private EngineItemState EnsureOwned(ArrInstance inst, int itemId)

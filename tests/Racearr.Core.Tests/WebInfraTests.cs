@@ -49,6 +49,7 @@ public class WebInfraTests
         public Task<IReadOnlyList<WantedItem>> GetWantedMissingAsync(ArrInstance i, CancellationToken ct) => Task.FromResult<IReadOnlyList<WantedItem>>([]);
         public Task<IReadOnlyList<Release>> GetReleasesAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult<IReadOnlyList<Release>>([]);
         public Task<ArrMutationResult> ForceSearchAsync(ArrInstance i, int id, CancellationToken ct) => Task.FromResult(new ArrMutationResult(true));
+        public Task<ArrMutationResult> SeasonSearchAsync(ArrInstance i, int seriesId, int seasonNumber, CancellationToken ct) => Task.FromResult(new ArrMutationResult(true));
         public Task<GrabResult> GrabAsync(ArrInstance i, int id, Release r, CancellationToken ct) => Task.FromResult(new GrabResult(GrabOutcome.Accepted));
         public Task<ArrMutationResult> DeleteQueueAsync(ArrInstance i, int id, bool rc, bool bl, CancellationToken ct) => Task.FromResult(new ArrMutationResult(true));
         public Task<LibraryStats> GetLibraryStatsAsync(ArrInstance i, CancellationToken ct) => Task.FromResult(new LibraryStats(i.Name, 0, 0));

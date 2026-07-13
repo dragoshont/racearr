@@ -24,6 +24,7 @@ public class RaceEngineTests
         public int ReleaseSearches;
         public List<int> Deleted = [];
         public List<(int Id, bool RemoveFromClient, bool Blocklist)> DeleteCalls = [];
+        public List<(int SeriesId, int SeasonNumber)> SeasonSearches = [];
 
         public Task<IReadOnlyList<QueueRecord>> GetQueueAsync(ArrInstance i, CancellationToken ct)
             => Task.FromResult<IReadOnlyList<QueueRecord>>(Queue);
@@ -37,6 +38,11 @@ public class RaceEngineTests
         public Task<ArrMutationResult> ForceSearchAsync(ArrInstance i, int id, CancellationToken ct)
         {
             ForcedSearches.Add(id);
+            return Task.FromResult(new ArrMutationResult(SearchSucceeds));
+        }
+        public Task<ArrMutationResult> SeasonSearchAsync(ArrInstance i, int seriesId, int seasonNumber, CancellationToken ct)
+        {
+            SeasonSearches.Add((seriesId, seasonNumber));
             return Task.FromResult(new ArrMutationResult(SearchSucceeds));
         }
         public Task<GrabResult> GrabAsync(ArrInstance i, int itemId, Release r, CancellationToken ct)
@@ -212,6 +218,87 @@ public class RaceEngineTests
         await engine.TickAsync(CancellationToken.None);
 
         Assert.Empty(state.Downloads); // pre-existing (baseline) downloads are not surfaced as managed
+    }
+
+    [Fact]
+    public async Task SeasonPack_OrphanedFromClient_BlocklistsEveryRecordAndSeasonSearches()
+    {
+        var o = new RacearrOptions { SonarrApiKey = "x", DryRun = false, RaceStallSeconds = 0 };
+        var arr = new FakeArr();
+        var qbit = new FakeQbit(); // empty snapshot -> the pack's torrent is orphaned (absent from the client)
+        var metrics = new CountingMetrics();
+        var engine = NewEngine(o, arr, qbit, metrics);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None); // empty baseline -> the pack is a fresh, managed download
+
+        // A 3-episode season pack: three queue rows sharing ONE downloadId, with series/season set.
+        arr.Queue =
+        [
+            new QueueRecord { Id = 1, ItemId = 101, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2, Title = "Show S02 PACK" },
+            new QueueRecord { Id = 2, ItemId = 102, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2, Title = "Show S02 PACK" },
+            new QueueRecord { Id = 3, ItemId = 103, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2, Title = "Show S02 PACK" },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { 1, 2, 3 }, arr.Deleted.OrderBy(x => x));                       // every pack record removed
+        Assert.All(arr.DeleteCalls, c => Assert.True(c.RemoveFromClient && c.Blocklist));    // blocklisted + removed from client
+        Assert.Equal((7, 2), Assert.Single(arr.SeasonSearches));                            // one season re-search
+        Assert.Contains("season_pack_dead", metrics.IncidentTypes);
+    }
+
+    [Fact]
+    public async Task SeasonPack_DeadButWithinStallFuse_IsNotRemediated()
+    {
+        var o = new RacearrOptions { SonarrApiKey = "x", DryRun = false, RaceStallSeconds = 3600 };
+        var arr = new FakeArr();
+        var engine = NewEngine(o, arr, new FakeQbit(), new CountingMetrics());
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue =
+        [
+            new QueueRecord { Id = 1, ItemId = 101, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+            new QueueRecord { Id = 2, ItemId = 102, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+        ];
+        await engine.TickAsync(CancellationToken.None); // dead only this tick (deadFor=0 < fuse) -> hold
+        Assert.Empty(arr.Deleted);
+        Assert.Empty(arr.SeasonSearches);
+    }
+
+    [Fact]
+    public async Task SeasonPack_Dead_DryRun_LogsIncidentButDoesNotMutate()
+    {
+        var o = new RacearrOptions { SonarrApiKey = "x", DryRun = true, RaceStallSeconds = 0 };
+        var arr = new FakeArr();
+        var metrics = new CountingMetrics();
+        var engine = NewEngine(o, arr, new FakeQbit(), metrics);
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue =
+        [
+            new QueueRecord { Id = 1, ItemId = 101, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+            new QueueRecord { Id = 2, ItemId = 102, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+        ];
+        await engine.TickAsync(CancellationToken.None);
+        Assert.Empty(arr.Deleted);                                   // dry-run never mutates the queue
+        Assert.Empty(arr.SeasonSearches);
+        Assert.Contains("season_pack_dead", metrics.IncidentTypes);  // but still reports the dead pack
+    }
+
+    [Fact]
+    public async Task SeasonPack_PresentAtBaseline_IsNeverRemediated()
+    {
+        var o = new RacearrOptions { SonarrApiKey = "x", DryRun = false, RaceStallSeconds = 0 };
+        var arr = new FakeArr
+        {
+            Queue =
+            {
+                new QueueRecord { Id = 1, ItemId = 101, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+                new QueueRecord { Id = 2, ItemId = 102, DownloadId = "packhash", SeriesId = 7, SeasonNumber = 2 },
+            },
+        };
+        var engine = NewEngine(o, arr, new FakeQbit(), new CountingMetrics());
+        await engine.PrimeBaselineAsync(CancellationToken.None); // pack captured as baseline -> protected
+        await engine.TickAsync(CancellationToken.None);
+        Assert.Empty(arr.Deleted);
+        Assert.Empty(arr.SeasonSearches);
     }
 
     [Fact]

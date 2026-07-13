@@ -84,6 +84,10 @@ public sealed record QueueRecord
     public string? TrackedDownloadStatus { get; init; }
     /// <summary>The *arr's estimated seconds remaining (<c>timeleft</c>); null when it can't estimate.</summary>
     public double? TimeLeftSeconds { get; init; }
+    /// <summary>Sonarr series id owning this download (null for Radarr) — the anchor for season remediation.</summary>
+    public int? SeriesId { get; init; }
+    /// <summary>Sonarr season number (null for Radarr) — the season a pack download belongs to.</summary>
+    public int? SeasonNumber { get; init; }
 }
 
 /// <summary>Outcome of asking an *arr instance to grab one release.</summary>
