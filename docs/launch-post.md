@@ -95,7 +95,7 @@ Repo + screenshots: https://github.com/dragoshont/racearr
 
 ## r/unRAID (short)
 
-**Title:** racearr is on Community Apps — race slow *arr downloads against alternates and keep the fastest
+**Title:** racearr — race slow *arr downloads against alternates and keep the fastest (Unraid template included)
 
 **Body:**
 
@@ -107,5 +107,7 @@ Not a strike-and-remove cleaner — it adds speed by racing.
 - Starts in `DRY_RUN` observe-only; flip to arm
 - Discord/ntfy notifications, Prometheus metrics, live dashboard
 
-Template: search **racearr** in Community Apps.
+Add the template manually for now:
+`https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml`
+(a Community Applications store submission is planned).
 Repo: https://github.com/dragoshont/racearr
