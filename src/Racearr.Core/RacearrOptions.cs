@@ -64,13 +64,31 @@ public sealed class RacearrOptions
 
     // ----- runtime -----
     public int HealthPort { get; init; } = 9797;
+
+    /// <summary>Optional incident webhook. Discord (<c>discord.com/api/webhooks/…</c>) is auto-detected
+    /// and posted as <c>{"content":…}</c>; any other URL (Slack, Mattermost, generic) receives <c>{"text":…}</c>.</summary>
     public string? IncidentWebhookUrl { get; init; }
+
+    /// <summary>ntfy server base URL (e.g. <c>https://ntfy.sh</c>). With <see cref="NtfyTopic"/> set,
+    /// incidents are pushed to ntfy in addition to any <see cref="IncidentWebhookUrl"/>.</summary>
+    public string? NtfyUrl { get; init; }
+    /// <summary>ntfy topic to publish incidents to.</summary>
+    public string? NtfyTopic { get; init; }
+    /// <summary>Optional ntfy access token (sent as <c>Authorization: Bearer …</c>) for protected topics.</summary>
+    public string? NtfyToken { get; init; }
+    /// <summary>Optional ntfy priority (<c>1</c>..<c>5</c> / <c>min</c>..<c>urgent</c>).</summary>
+    public string? NtfyPriority { get; init; }
 
     /// <summary>Optional shared secret required on the Seerr webhook endpoint (env-only, never persisted).</summary>
     public string? WebhookToken { get; init; }
 
-    /// <summary>True if at least one *arr instance is configured (an API key present).</summary>
-    public bool HasAnyInstance => !string.IsNullOrWhiteSpace(RadarrApiKey) || !string.IsNullOrWhiteSpace(SonarrApiKey);
+    /// <summary>Additional *arr instances beyond the primary Radarr/Sonarr, parsed from <c>ARR_INSTANCES</c>
+    /// (<c>kind|url|apikey|label;…</c>). Lets racearr race across e.g. a 1080p and a 4K Radarr at once.</summary>
+    public IReadOnlyList<ArrInstanceConfig> ExtraArrInstances { get; init; } = [];
+
+    /// <summary>True if at least one *arr instance is configured (a primary API key or an extra instance).</summary>
+    public bool HasAnyInstance =>
+        !string.IsNullOrWhiteSpace(RadarrApiKey) || !string.IsNullOrWhiteSpace(SonarrApiKey) || ExtraArrInstances.Count > 0;
 
     /// <summary>
     /// Build options from an environment getter (defaults to the process environment).
@@ -148,8 +166,39 @@ public sealed class RacearrOptions
             DryRun = Bool("DRY_RUN", true),
             HealthPort = Int("HEALTH_PORT", 9797),
             IncidentWebhookUrl = Str("INCIDENT_WEBHOOK_URL"),
+            NtfyUrl = Str("NTFY_URL")?.TrimEnd('/'),
+            NtfyTopic = Str("NTFY_TOPIC"),
+            NtfyToken = Str("NTFY_TOKEN"),
+            NtfyPriority = Str("NTFY_PRIORITY"),
             WebhookToken = Str("WEBHOOK_TOKEN"),
+            ExtraArrInstances = ParseExtraInstances(Str("ARR_INSTANCES")),
         };
+    }
+
+    /// <summary>
+    /// Parse <c>ARR_INSTANCES</c> — a <c>;</c>-separated list of extra instances, each
+    /// <c>kind|url|apikey[|label]</c> (kind = <c>radarr</c>/<c>sonarr</c>). Malformed entries are
+    /// skipped rather than failing startup, so one typo never takes racearr down.
+    /// </summary>
+    internal static IReadOnlyList<ArrInstanceConfig> ParseExtraInstances(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return [];
+        var res = new List<ArrInstanceConfig>();
+        foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split('|', StringSplitOptions.TrimEntries);
+            if (parts.Length < 3) continue; // need at least kind|url|apikey
+            ArrKind? kind = parts[0].ToLowerInvariant() switch
+            {
+                "radarr" => ArrKind.Radarr,
+                "sonarr" => ArrKind.Sonarr,
+                _ => null,
+            };
+            if (kind is null || string.IsNullOrWhiteSpace(parts[1]) || string.IsNullOrWhiteSpace(parts[2])) continue;
+            var label = parts.Length >= 4 && !string.IsNullOrWhiteSpace(parts[3]) ? parts[3] : null;
+            res.Add(new ArrInstanceConfig(kind.Value, parts[1].TrimEnd('/'), parts[2], label));
+        }
+        return res;
     }
 
     /// <summary>The tunable SLA knobs as a string map, used to seed + persist the settings store.</summary>

@@ -25,6 +25,22 @@ persisting its tunable settings and race history in a local **SQLite** database.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/dashboard.png" alt="racearr dashboard — live status, the title pipeline, and impact" width="920" />
+</p>
+
+<p align="center">
+  <img src="assets/history.png"     alt="Race history" width="32%" />
+  <img src="assets/connections.png" alt="Connections"  width="32%" />
+  <img src="assets/settings.png"    alt="Settings"     width="32%" />
+</p>
+
+<sub>Dashboard, race history, connection setup and tunable SLAs — the dark-mode MudBlazor UI on port `9797`.</sub>
+
+---
+
 ## The problem
 
 When you add something to your watchlist, the pipeline usually crawls for one of these reasons:
@@ -182,6 +198,23 @@ Manifests are in [`deploy/k8s/`](deploy/k8s/). On a zero-trust cluster
 
 ---
 
+## Unraid
+
+racearr ships an **Unraid Community Applications** template. Until it's listed in
+the CA store, add it manually:
+
+1. In Unraid, open **Docker → Add Container** and set **Template** to the raw URL
+   `https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml`
+   (or add it under **Template repositories**).
+2. Fill in your Radarr/Sonarr URLs + API keys and qBittorrent credentials, map
+   `/config` to your appdata share, and start it — the WebUI is on port **9797**.
+3. It starts in `DRY_RUN`; flip that toggle to `false` in the template once you're
+   happy with what the logs show.
+
+The template lives at [`unraid/racearr.xml`](unraid/racearr.xml).
+
+---
+
 ## Configuration
 
 All configuration is via environment variables. At least one of Radarr/Sonarr must be configured.
@@ -210,11 +243,43 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `PROTECT_PRIVATE` | `true` | Never race/remove private-tracker torrents |
 | `PRIVATE_INDEXERS` | — | Comma-separated indexer names to treat as private |
 | `PRIVATE_TRACKER_DOMAINS` | — | Comma-separated tracker domains to treat as private |
-| `INCIDENT_WEBHOOK_URL` | — | POST `{"text": ...}` on each incident (Discord/ntfy/etc.) |
+| `INCIDENT_WEBHOOK_URL` | — | Incident webhook. **Discord** URLs are auto-detected and sent as `{"content":…}`; Slack/Mattermost/generic get `{"text":…}` |
+| `NTFY_URL` / `NTFY_TOPIC` | — | Push incidents to [ntfy](https://ntfy.sh) (both required to enable) |
+| `NTFY_TOKEN` / `NTFY_PRIORITY` | — | Optional ntfy access token (Bearer) and priority (`min`..`urgent`) |
+| `ARR_INSTANCES` | — | Extra \*arr instances beyond the primary, `;`-separated as `kind\|url\|apikey\|label` (see below) |
 | `HEALTH_PORT` | `9797` | Port for the web UI, `/healthz`, `/status`, and `/metrics` |
 | `DB_PATH` | `/config/racearr.db` | SQLite file for settings + race history (must be an absolute path) |
 | `WEBHOOK_TOKEN` | — | Optional shared secret; when set, `POST /api/webhook/seerr` requires header `X-Webhook-Token` |
 | `LOG_LEVEL` | `INFO` | `INFO` / `DEBUG` |
+
+### Notifications (Discord / ntfy)
+
+racearr posts a short message on every incident (a pickup breach, a race, a dead
+season pack). Configure any combination:
+
+- **Discord** — paste a channel webhook into `INCIDENT_WEBHOOK_URL`; it's
+  auto-detected and delivered as a Discord message.
+- **ntfy** — set `NTFY_URL` (e.g. `https://ntfy.sh`) + `NTFY_TOPIC`; add
+  `NTFY_TOKEN` for a protected topic and `NTFY_PRIORITY` to taste.
+- **Slack / Mattermost / anything else** — point `INCIDENT_WEBHOOK_URL` at the
+  incoming-webhook URL and racearr sends `{"text": …}`.
+
+Delivery is fire-and-forget — a dead or slow webhook never stalls or crashes the racer.
+
+### Multiple Radarr / Sonarr instances
+
+The primary Radarr/Sonarr come from `RADARR_*` / `SONARR_*`. To race across more
+than one of each (say a 1080p **and** a 4K Radarr), list the extras in
+`ARR_INSTANCES` — a `;`-separated set of `kind|url|apikey|label` entries (`label`
+optional):
+
+```bash
+ARR_INSTANCES="radarr|http://radarr-4k:7878|APIKEY|4k;sonarr|http://sonarr-anime:8989|APIKEY|anime"
+```
+
+Each instance gets a unique name in metrics and history (`radarr`, `radarr-4k`,
+`sonarr`, `sonarr-anime`, …). The primary keeps its plain `radarr` / `sonarr`
+labels, so existing dashboards keep working unchanged.
 
 ### Observability
 - `GET /healthz` → `200 ok` (liveness).
@@ -296,7 +361,7 @@ the fast path.
 
 ## Contributing
 
-Issues and PRs welcome. On the `rewrite-dotnet` branch it's a small .NET 10 solution
+Issues and PRs welcome. It's a small .NET 10 solution
 ([`Racearr.slnx`](Racearr.slnx)) — `dotnet build` + `dotnet test` is the smoke test.
 
 ## License

@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>racearr</Name>
+  <Repository>ghcr.io/dragoshont/racearr:latest</Repository>
+  <Registry>https://github.com/dragoshont/racearr/pkgs/container/racearr</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/dragoshont/racearr/issues</Support>
+  <Project>https://github.com/dragoshont/racearr</Project>
+  <Overview>racearr is the fast lane for your *arr downloads. When a grab is slow to start or crawling, racearr forces extra interactive searches, races several well-seeded alternates for the same movie/episode in parallel, keeps the fastest, and cancels the losers &#8212; so your library fills at the speed of your best available source instead of your unluckiest torrent. It is NOT a strike-and-remove cleaner: it adds speed by racing, rather than only removing stalls.&#13;&#10;&#13;&#10;Works with Radarr and Sonarr + qBittorrent (Deluge/Transmission in beta via the *arr queue). Starts in DRY_RUN (observe-only) so you can watch it decide before arming it with DRY_RUN=false. Ships a live dashboard, Prometheus metrics, and optional Discord/ntfy incident notifications.&#13;&#10;&#13;&#10;Point RADARR_URL / SONARR_URL / QBIT_URL at your other containers (use their container names on a shared Docker network, or the Unraid host IP).</Overview>
+  <Category>Downloaders: MediaApp:Video Tools:</Category>
+  <WebUI>http://[IP]:[PORT:9797]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/dragoshont/racearr/main/assets/racearr-icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>At least one Radarr or Sonarr API key, plus (recommended) qBittorrent WebUI credentials.</Requires>
+  <Config Name="WebUI / metrics port" Target="9797" Default="9797" Mode="tcp" Description="Blazor dashboard, Prometheus /metrics, and /healthz all bind here." Type="Port" Display="always" Required="true" Mask="false">9797</Config>
+  <Config Name="Config (database)" Target="/config" Default="/mnt/user/appdata/racearr" Mode="rw" Description="Holds racearr.db (settings + history). Keep it on the array." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/racearr</Config>
+  <Config Name="RADARR_URL" Target="RADARR_URL" Default="http://192.168.1.10:7878" Mode="" Description="Base URL of your Radarr (container name on a shared network, or host IP:port)." Type="Variable" Display="always" Required="false" Mask="false">http://192.168.1.10:7878</Config>
+  <Config Name="RADARR_API_KEY" Target="RADARR_API_KEY" Default="" Mode="" Description="Radarr &#8594; Settings &#8594; General &#8594; API Key. Leave blank if you only run Sonarr." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="SONARR_URL" Target="SONARR_URL" Default="http://192.168.1.10:8989" Mode="" Description="Base URL of your Sonarr (container name on a shared network, or host IP:port)." Type="Variable" Display="always" Required="false" Mask="false">http://192.168.1.10:8989</Config>
+  <Config Name="SONARR_API_KEY" Target="SONARR_API_KEY" Default="" Mode="" Description="Sonarr &#8594; Settings &#8594; General &#8594; API Key. Leave blank if you only run Radarr." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="QBIT_URL" Target="QBIT_URL" Default="http://192.168.1.10:8080" Mode="" Description="qBittorrent WebUI URL (used to read live per-torrent speed)." Type="Variable" Display="always" Required="false" Mask="false">http://192.168.1.10:8080</Config>
+  <Config Name="QBIT_USERNAME" Target="QBIT_USERNAME" Default="" Mode="" Description="qBittorrent WebUI username." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="QBIT_PASSWORD" Target="QBIT_PASSWORD" Default="" Mode="" Description="qBittorrent WebUI password." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="DRY_RUN" Target="DRY_RUN" Default="true" Mode="" Description="Observe-only when true (recommended for the first run). Set to false to arm racing + removals." Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="TORRENT_CLIENT" Target="TORRENT_CLIENT" Default="qbittorrent" Mode="" Description="qbittorrent (full fidelity), or deluge / transmission (beta, read via the *arr queue)." Type="Variable" Display="advanced" Required="false" Mask="false">qbittorrent</Config>
+  <Config Name="INCIDENT_WEBHOOK_URL" Target="INCIDENT_WEBHOOK_URL" Default="" Mode="" Description="Optional. Discord webhook (auto-detected) or any Slack/Mattermost/generic webhook to receive incident notifications." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NTFY_URL" Target="NTFY_URL" Default="" Mode="" Description="Optional. ntfy server base URL (e.g. https://ntfy.sh). Requires NTFY_TOPIC." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NTFY_TOPIC" Target="NTFY_TOPIC" Default="" Mode="" Description="Optional. ntfy topic to publish incidents to." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="ARR_INSTANCES" Target="ARR_INSTANCES" Default="" Mode="" Description="Optional. Extra *arr instances beyond the primary, ; -separated as kind|url|apikey|label (e.g. radarr|http://radarr-4k:7878|KEY|4k)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TZ" Target="TZ" Default="Etc/UTC" Mode="" Description="Container timezone (for log timestamps)." Type="Variable" Display="advanced" Required="false" Mask="false">Etc/UTC</Config>
+</Container>

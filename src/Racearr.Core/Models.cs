@@ -21,30 +21,63 @@ public sealed record ArrInstance
     public string SearchCommand => Kind == ArrKind.Radarr ? "MoviesSearch" : "EpisodeSearch";
     /// <summary>Command payload field holding the id list.</summary>
     public string SearchIdsField => Kind == ArrKind.Radarr ? "movieIds" : "episodeIds";
-    /// <summary>Lowercase label used in metrics and race keys (<c>radarr</c> / <c>sonarr</c>).</summary>
-    public string Name => Kind == ArrKind.Radarr ? "radarr" : "sonarr";
 
-    /// <summary>Build the configured instances (an instance exists iff its API key is set).</summary>
+    /// <summary>Optional explicit label. When null, <see cref="Name"/> falls back to the kind
+    /// (<c>radarr</c>/<c>sonarr</c>) — so single-instance setups keep their historical metric labels.</summary>
+    public string? Label { get; init; }
+
+    /// <summary>Unique lowercase label used in metrics and race keys. The primary Radarr/Sonarr are
+    /// <c>radarr</c>/<c>sonarr</c>; additional instances get a suffix (e.g. <c>radarr-4k</c>, <c>sonarr-2</c>).</summary>
+    public string Name => Label ?? (Kind == ArrKind.Radarr ? "radarr" : "sonarr");
+
+    /// <summary>
+    /// Build the configured instances. The primary Radarr/Sonarr come from the top-level connection
+    /// options (an instance exists iff its API key is set); any <see cref="RacearrOptions.ExtraArrInstances"/>
+    /// are appended, each given a unique <see cref="Name"/> so metrics, race keys and ownership never collide.
+    /// </summary>
     public static IReadOnlyList<ArrInstance> FromOptions(RacearrOptions o)
     {
         var list = new List<ArrInstance>();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(ArrKind kind, string url, string apiKey, string? label)
+        {
+            var baseName = kind == ArrKind.Radarr ? "radarr" : "sonarr";
+            var slug = label is null ? "" : Slug(label);
+            var name = slug.Length == 0 ? baseName : $"{baseName}-{slug}";
+            // De-duplicate: a second unlabeled radarr, or two identical labels, get a numeric suffix.
+            var unique = name;
+            var i = 2;
+            while (!used.Add(unique)) unique = $"{name}-{i++}";
+            list.Add(new ArrInstance
+            {
+                Kind = kind,
+                Url = url.TrimEnd('/'),
+                ApiKey = apiKey,
+                Label = unique == baseName ? null : unique,
+            });
+        }
+
         if (!string.IsNullOrWhiteSpace(o.RadarrApiKey))
-            list.Add(new ArrInstance
-            {
-                Kind = ArrKind.Radarr,
-                Url = (o.RadarrUrl ?? "http://localhost:7878").TrimEnd('/'),
-                ApiKey = o.RadarrApiKey!,
-            });
+            Add(ArrKind.Radarr, o.RadarrUrl ?? "http://localhost:7878", o.RadarrApiKey!, null);
         if (!string.IsNullOrWhiteSpace(o.SonarrApiKey))
-            list.Add(new ArrInstance
-            {
-                Kind = ArrKind.Sonarr,
-                Url = (o.SonarrUrl ?? "http://localhost:8989").TrimEnd('/'),
-                ApiKey = o.SonarrApiKey!,
-            });
+            Add(ArrKind.Sonarr, o.SonarrUrl ?? "http://localhost:8989", o.SonarrApiKey!, null);
+        foreach (var e in o.ExtraArrInstances)
+            Add(e.Kind, e.Url, e.ApiKey, e.Label);
+
         return list;
     }
+
+    private static string Slug(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s.ToLowerInvariant()) sb.Append(char.IsLetterOrDigit(c) ? c : '-');
+        return sb.ToString().Trim('-');
+    }
 }
+
+/// <summary>Config for one extra *arr instance (beyond the primary Radarr/Sonarr), from <c>ARR_INSTANCES</c>.</summary>
+public sealed record ArrInstanceConfig(ArrKind Kind, string Url, string ApiKey, string? Label);
 
 /// <summary>Domain projection of an *arr release-search result (the nested v3 JSON, flattened).</summary>
 public sealed record Release

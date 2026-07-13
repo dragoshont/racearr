@@ -26,6 +26,7 @@ public sealed class RaceEngine
     private readonly IEngineMetrics _metrics;
     private readonly IEventSink _events;
     private readonly IEngineStateStore _stateStore;
+    private readonly IIncidentNotifier _notifier;
     private readonly RaceEngineState _state;
     private readonly ILogger<RaceEngine> _log;
 
@@ -48,7 +49,8 @@ public sealed class RaceEngine
         IEventSink events,
         IEngineStateStore stateStore,
         RaceEngineState state,
-        ILogger<RaceEngine> log)
+        ILogger<RaceEngine> log,
+        IIncidentNotifier? notifier = null)
     {
         _o = options;
         _instances = ArrInstance.FromOptions(options);
@@ -57,6 +59,7 @@ public sealed class RaceEngine
         _metrics = metrics;
         _events = events;
         _stateStore = stateStore;
+        _notifier = notifier ?? NullIncidentNotifier.Instance;
         _state = state;
         _log = log;
     }
@@ -730,7 +733,7 @@ public sealed class RaceEngine
         _metrics.IncIncident(type);
         _events.Record(new RaceEvent { Kind = "incident", Instance = instance, ItemId = itemId, Outcome = type, Detail = message });
         _log.LogWarning("INCIDENT {Type} {Message}", type, message);
-        // INCIDENT_WEBHOOK notification is deferred to Phase 4 (ADR-0001) alongside the seerr webhook.
+        _notifier.Notify(type, message);
     }
 
     private static string Trunc(string s, int max) => s.Length <= max ? s : s[..max];

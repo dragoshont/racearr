@@ -111,6 +111,9 @@ if (options.UsesArrQueueProbe)
 else
     builder.Services.AddHttpClient<IQbitClient, QbitClient>();
 builder.Services.AddHttpClient<IConnectionTester, ConnectionTester>();
+// Incident notifications (Discord / ntfy / generic webhook). Fire-and-forget; a dead webhook
+// never stalls the racer. No-ops unless INCIDENT_WEBHOOK_URL or NTFY_URL+NTFY_TOPIC are set.
+builder.Services.AddHttpClient<IIncidentNotifier, IncidentNotifier>();
 builder.Services.AddSingleton<RaceEngine>();
 builder.Services.AddHostedService<RaceEngineHostedService>();
 builder.Services.AddSingleton<InsightsService>();
