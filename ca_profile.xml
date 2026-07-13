@@ -1,0 +1,11 @@
+<CommunityApplications>
+  <Profile>
+racearr is the fast lane for your *arr downloads. When a Radarr/Sonarr grab is slow to start or crawling, racearr forces extra interactive searches, races several well-seeded alternates for the same movie/episode in parallel, keeps the fastest, and cancels the losers &#8212; so your library fills at the speed of your best available source. It is **not** a strike-and-remove cleaner; it adds speed by racing.
+
+Works with Radarr and Sonarr + qBittorrent (Deluge/Transmission in beta). Starts in **DRY_RUN** (observe-only) so you can watch it decide before arming it. Ships a live dashboard, Prometheus metrics, and optional Discord/ntfy/Telegram/Gotify/Pushover/Apprise notifications.
+
+Support and docs: https://github.com/dragoshont/racearr &#8212; issues at https://github.com/dragoshont/racearr/issues
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/dragoshont/racearr/main/assets/racearr-icon.png</Icon>
+  <WebPage>https://github.com/dragoshont/racearr</WebPage>
+</CommunityApplications>

@@ -204,14 +204,14 @@ racearr ships an **Unraid Community Applications** template. Until it's listed i
 the CA store, add it manually:
 
 1. In Unraid, open **Docker → Add Container** and set **Template** to the raw URL
-   `https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml`
+   `https://raw.githubusercontent.com/dragoshont/racearr/main/templates/racearr.xml`
    (or add it under **Template repositories**).
 2. Fill in your Radarr/Sonarr URLs + API keys and qBittorrent credentials, map
    `/config` to your appdata share, and start it — the WebUI is on port **9797**.
 3. It starts in `DRY_RUN`; flip that toggle to `false` in the template once you're
    happy with what the logs show.
 
-The template lives at [`unraid/racearr.xml`](unraid/racearr.xml).
+The template lives at [`templates/racearr.xml`](templates/racearr.xml).
 
 ---
 

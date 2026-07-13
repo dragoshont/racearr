@@ -108,6 +108,6 @@ Not a strike-and-remove cleaner — it adds speed by racing.
 - Discord/ntfy notifications, Prometheus metrics, live dashboard
 
 Add the template manually for now:
-`https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml`
+`https://raw.githubusercontent.com/dragoshont/racearr/main/templates/racearr.xml`
 (a Community Applications store submission is planned).
 Repo: https://github.com/dragoshont/racearr

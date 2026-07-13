@@ -9,10 +9,10 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/dragoshont/racearr/issues</Support>
   <Project>https://github.com/dragoshont/racearr</Project>
-  <Overview>racearr is the fast lane for your *arr downloads. When a grab is slow to start or crawling, racearr forces extra interactive searches, races several well-seeded alternates for the same movie/episode in parallel, keeps the fastest, and cancels the losers &#8212; so your library fills at the speed of your best available source instead of your unluckiest torrent. It is NOT a strike-and-remove cleaner: it adds speed by racing, rather than only removing stalls.&#13;&#10;&#13;&#10;Works with Radarr and Sonarr + qBittorrent (Deluge/Transmission in beta via the *arr queue). Starts in DRY_RUN (observe-only) so you can watch it decide before arming it with DRY_RUN=false. Ships a live dashboard, Prometheus metrics, and optional Discord/ntfy incident notifications.&#13;&#10;&#13;&#10;Point RADARR_URL / SONARR_URL / QBIT_URL at your other containers (use their container names on a shared Docker network, or the Unraid host IP).</Overview>
+  <Overview>racearr is the fast lane for your *arr downloads. When a grab is slow to start or crawling, racearr forces extra interactive searches, races several well-seeded alternates for the same movie/episode in parallel, keeps the fastest, and cancels the losers &#8212; so your library fills at the speed of your best available source instead of your unluckiest torrent. It is NOT a strike-and-remove cleaner: it adds speed by racing, rather than only removing stalls.&#13;&#10;&#13;&#10;Works with Radarr and Sonarr + qBittorrent (Deluge/Transmission in beta via the *arr queue). Starts in DRY_RUN (observe-only) so you can watch it decide before arming it with DRY_RUN=false. Ships a live dashboard, Prometheus metrics, and optional Discord/ntfy/Telegram/Gotify/Pushover/Apprise incident notifications.&#13;&#10;&#13;&#10;Point RADARR_URL / SONARR_URL / QBIT_URL at your other containers (use their container names on a shared Docker network, or the Unraid host IP).</Overview>
   <Category>Downloaders: MediaApp:Video Tools:</Category>
   <WebUI>http://[IP]:[PORT:9797]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/dragoshont/racearr/main/unraid/racearr.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/dragoshont/racearr/main/templates/racearr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/dragoshont/racearr/main/assets/racearr-icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
@@ -21,6 +21,10 @@
   <DonateText/>
   <DonateLink/>
   <Requires>At least one Radarr or Sonarr API key, plus (recommended) qBittorrent WebUI credentials.</Requires>
+  <ReadMe>https://raw.githubusercontent.com/dragoshont/racearr/main/README.md</ReadMe>
+  <License>MIT</License>
+  <MinVer>6.9</MinVer>
+  <ExtraSearchTerms>radarr sonarr qbittorrent torrent servarr download racer race alternates</ExtraSearchTerms>
   <Config Name="WebUI / metrics port" Target="9797" Default="9797" Mode="tcp" Description="Blazor dashboard, Prometheus /metrics, and /healthz all bind here." Type="Port" Display="always" Required="true" Mask="false">9797</Config>
   <Config Name="Config (database)" Target="/config" Default="/mnt/user/appdata/racearr" Mode="rw" Description="Holds racearr.db (settings + history). Keep it on the array." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/racearr</Config>
   <Config Name="RADARR_URL" Target="RADARR_URL" Default="http://192.168.1.10:7878" Mode="" Description="Base URL of your Radarr (container name on a shared network, or host IP:port)." Type="Variable" Display="always" Required="false" Mask="false">http://192.168.1.10:7878</Config>
