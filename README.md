@@ -143,8 +143,9 @@ Once a race is at least `RACE_CULL_AFTER_SECONDS` old and there's a clear winner
 candidate reaches the target within `RACE_MONITOR_SECONDS`, it keeps the fastest
 anyway and logs a `race_no_target` incident. The cull **persists across polls**, so
 late-arriving alternates are also cleaned up until only the winner remains. After a
-race, the item enters a `RACE_COOLDOWN_SECONDS` back-off so genuinely scarce content
-(few seeders anywhere) doesn't churn.
+race, the item enters an exponential back-off. Racearr stops after
+`RACE_MAX_ATTEMPTS_PER_ITEM` attempts while that item remains queued, so genuinely scarce
+content cannot churn indefinitely. Leaving the queue resets the budget for a future request.
 
 ### 4. Safety built in
 - **Private trackers are protected.** racearr never grabs private alternates and never
@@ -236,6 +237,7 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `RACE_MONITOR_SECONDS` | `180` | Hard cap: keep the fastest, kill the rest |
 | `RACE_COOLDOWN_SECONDS` | `600` | Back-off before re-racing the same item |
 | `RACE_RETRY_MAX_SECONDS` | `21600` | Maximum exponential retry delay after empty/failed attempts |
+| `RACE_MAX_ATTEMPTS_PER_ITEM` | `3` | Terminal race-attempt budget per queued title (invalid values fail closed to 1) |
 | `MAX_CONCURRENT_PER_ITEM` | `4` | Max simultaneous candidates per item |
 | `MAX_ACTIVE_RACES` | `6` | Global cap on concurrent races per instance |
 | `RACE_MIN_SEEDERS` | `3` | Minimum seeders for a race candidate |

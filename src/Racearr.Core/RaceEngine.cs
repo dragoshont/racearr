@@ -34,6 +34,7 @@ public sealed class RaceEngine
     private readonly Dictionary<string, DownloadState> _dl = new();          // infohash -> tracking
     private readonly Dictionary<string, DateTimeOffset> _raceStart = new();  // "kind:iid" -> race start
     private readonly Dictionary<string, EngineItemState> _owned = new();     // durable racearr-owned item state
+    private readonly Dictionary<string, DateTimeOffset> _observationRetry = new(); // dry-run throttle; never persisted
     private readonly HashSet<string> _baselineDl = new();                    // downloads present at startup
     private readonly HashSet<string> _baselineWanted = new();                // wanted keys present at startup
     private readonly HashSet<string> _primedInstances = new();               // complete per-instance baselines
@@ -325,7 +326,8 @@ public sealed class RaceEngine
                 // ---- SPEED SLA: trigger a race on a slow, non-baseline item ----
                 var oldest = cand.Max(c => c.Age);
                 var bestSpeed = cand.Max(c => c.MaxSpeed);
-                var inCooldown = itemState is not null && InRetry(itemState, now);
+                var inCooldown = itemState is not null &&
+                    (InRetry(itemState, now) || InObservationRetry(itemState, now) || RetryExhausted(itemState));
                 var anyStalledDead = cand.Any(c => !c.Baseline && RaceDecisions.IsStalledDead(c.Torrent));
                 var slow = RaceDecisions.ShouldStartRace(oldest, bestSpeed, inCooldown, _o);
                 var stalled = RaceDecisions.ShouldStartRaceStalled(oldest, anyStalledDead, inCooldown, _o);
@@ -395,9 +397,13 @@ public sealed class RaceEngine
                         _events.Record(new RaceEvent { Kind = "race_started", Instance = inst.Name, ItemId = iid, Detail = $"grabbed {grabbed} alternate(s)" });
                         _raceStart[gkey] = now;
                         activeRaces++;
-                        if (itemState is not null) ResetRetry(itemState);
+                        if (itemState is not null) ScheduleRetry(itemState, now);
                     }
-                    else if (itemState is not null) ScheduleRetry(itemState, now);
+                    else if (itemState is not null)
+                    {
+                        if (_o.DryRun) ScheduleObservationRetry(itemState, now);
+                        else ScheduleRetry(itemState, now);
+                    }
                 }
             }
             else
@@ -427,7 +433,11 @@ public sealed class RaceEngine
                         _metrics.IncRaceOutcome(inst.Name, outcome);
                         _events.Record(new RaceEvent { Kind = "race_outcome", Instance = inst.Name, ItemId = iid, Outcome = outcome, Mbps = Math.Round(fastest / Mb, 2) });
                         _raceStart.Remove(gkey);
-                        if (itemState is not null) SetCooldown(itemState, now);
+                        if (itemState is not null)
+                        {
+                            if (haveWinner) SetCooldown(itemState, now);
+                            else ContinueRetry(itemState, now);
+                        }
                     }
                 }
             }
@@ -774,10 +784,14 @@ public sealed class RaceEngine
         if (fingerprint is not null && fingerprint != state.QueueFingerprint)
         {
             state.QueueFingerprint = fingerprint;
-            state.QueueFirstSeenUtc = now;
-            state.RetryCount = 0;
-            if (state.NextRetryUtc <= now) state.NextRetryUtc = null;
-            state.LastIncidentType = null;
+            // A race changes the queue fingerprint by adding and culling candidates. Preserve
+            // retry ownership across that churn or the engine grants itself unlimited retries.
+            if (state.RetryCount == 0)
+            {
+                state.QueueFirstSeenUtc = now;
+                if (state.NextRetryUtc <= now) state.NextRetryUtc = null;
+                state.LastIncidentType = null;
+            }
             changed = true;
         }
         if (state.QueueFirstSeenUtc is null)
@@ -792,6 +806,12 @@ public sealed class RaceEngine
     private static bool InRetry(EngineItemState state, DateTimeOffset now)
         => state.NextRetryUtc is DateTimeOffset until && now < until;
 
+    private bool InObservationRetry(EngineItemState state, DateTimeOffset now)
+        => _observationRetry.TryGetValue(state.Key, out var until) && now < until;
+
+    private bool RetryExhausted(EngineItemState state)
+        => state.RetryCount >= Math.Max(1, _o.RaceMaxAttemptsPerItem);
+
     private void ScheduleRetry(EngineItemState state, DateTimeOffset now)
     {
         state.RetryCount++;
@@ -799,8 +819,24 @@ public sealed class RaceEngine
         SaveOwned(state);
     }
 
+    private void ScheduleObservationRetry(EngineItemState state, DateTimeOffset now)
+    {
+        _observationRetry[state.Key] = now.AddSeconds(RaceDecisions.RetryDelaySeconds(Math.Max(1, state.RetryCount), _o));
+    }
+
+    private void ContinueRetry(EngineItemState state, DateTimeOffset now)
+    {
+        state.NextRetryUtc = now.AddSeconds(RaceDecisions.RetryDelaySeconds(state.RetryCount, _o));
+        SaveOwned(state);
+    }
+
     private void SetCooldown(EngineItemState state, DateTimeOffset now)
     {
+        if (_o.DryRun)
+        {
+            ScheduleObservationRetry(state, now);
+            return;
+        }
         state.RetryCount = 0;
         state.NextRetryUtc = now.AddSeconds(_o.RaceCooldownSeconds);
         SaveOwned(state);
@@ -822,6 +858,7 @@ public sealed class RaceEngine
     private void RemoveOwned(string key)
     {
         _owned.Remove(key);
+        _observationRetry.Remove(key);
         _stateStore.Delete(key);
     }
 

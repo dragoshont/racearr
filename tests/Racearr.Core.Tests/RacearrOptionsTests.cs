@@ -19,6 +19,7 @@ public class RacearrOptionsTests
         Assert.Equal(4, o.MaxConcurrentPerItem);
         Assert.Equal(1080, o.RaceMaxResolution);
         Assert.Equal(21600, o.RaceRetryMaxSeconds);
+        Assert.Equal(3, o.RaceMaxAttemptsPerItem);
         Assert.True(o.ProtectPrivate);
         Assert.True(o.DryRun);            // safe default: observe-only until explicitly armed
         Assert.Equal(9797, o.HealthPort);
@@ -49,6 +50,7 @@ public class RacearrOptionsTests
             ["RADARR_API_KEY"] = "abc",
             ["DRY_RUN"] = "false",
             ["SPEED_SLA_MBPS"] = "1.5",
+            ["RACE_MAX_ATTEMPTS_PER_ITEM"] = "5",
             ["PRIVATE_INDEXERS"] = "AvistaZ, PassThePopcorn",
             ["QBIT_URL"] = "http://qbit:8080/",
         }));
@@ -57,8 +59,26 @@ public class RacearrOptionsTests
         Assert.Equal("http://qbit:8080", o.QbitUrl);
         Assert.False(o.DryRun);
         Assert.Equal(1.5, o.SpeedSlaMbps);
+        Assert.Equal(5, o.RaceMaxAttemptsPerItem);
         Assert.Equal(["avistaz", "passthepopcorn"], o.PrivateIndexers);  // lowercased + trimmed
         Assert.True(o.HasAnyInstance);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-number")]
+    [InlineData("999999999999")]
+    public void Invalid_attempt_budget_fails_closed_to_one(string raw)
+    {
+        var options = RacearrOptions.FromEnvironment(Env(new()
+        {
+            ["RACE_MAX_ATTEMPTS_PER_ITEM"] = raw,
+        }));
+
+        Assert.Equal(1, options.RaceMaxAttemptsPerItem);
     }
 
     [Fact]

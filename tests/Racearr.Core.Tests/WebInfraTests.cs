@@ -121,15 +121,34 @@ public class WebInfraTests
     {
         private int _index;
         public List<HttpMethod> Methods { get; } = [];
+        public List<Uri> Requests { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Methods.Add(request.Method);
+            Requests.Add(request.RequestUri!);
             return Task.FromResult(responses[Math.Min(_index++, responses.Length - 1)](request));
         }
     }
 
     private static ArrInstance RadarrInstance => new() { Kind = ArrKind.Radarr, Url = "http://arr", ApiKey = "k" };
+
+    [Fact]
+    public async Task ArrClient_DeleteQueue_RequestsPayloadRemovalAndBlocklist()
+    {
+        var handler = new SequenceStubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        var client = new ArrClient(new HttpClient(handler));
+
+        var result = await client.DeleteQueueAsync(RadarrInstance, 42, removeFromClient: true, blocklist: true, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(HttpMethod.Delete, Assert.Single(handler.Methods));
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("/api/v3/queue/42", request.AbsolutePath);
+        Assert.Contains("removeFromClient=true", request.Query);
+        Assert.Contains("blocklist=true", request.Query);
+        Assert.Contains("skipRedownload=true", request.Query);
+    }
 
     [Fact]
     public async Task ArrClient_MapsReleaseJson_IncludingNestedQualityAndRejections()

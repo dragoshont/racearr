@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging.Abstractions;
 using Racearr.Core;
 using Racearr.Web;
@@ -142,6 +144,32 @@ public class PersistenceTests
         {
             connection.Dispose();
         }
+    }
+
+    [Fact]
+    public void TerminalAttemptBudgetMigration_ClearsLegacyRetryState()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        using var db = new RacearrDbContext(
+            new DbContextOptionsBuilder<RacearrDbContext>().UseSqlite(connection).Options);
+        var migrator = db.GetService<IMigrator>();
+        migrator.Migrate("20260712103745_EngineCounters");
+        db.EngineItemStates.Add(new EngineItemState
+        {
+            Key = "sonarr:7142", Instance = "sonarr", ItemId = 7142,
+            QueueFingerprint = "fingerprint", RetryCount = 9,
+            NextRetryUtc = DateTimeOffset.UtcNow.AddDays(1),
+        });
+        db.SaveChanges();
+
+        migrator.Migrate();
+        db.ChangeTracker.Clear();
+
+        var state = Assert.Single(db.EngineItemStates.AsNoTracking());
+        Assert.Equal(0, state.RetryCount);
+        Assert.Null(state.NextRetryUtc);
+        Assert.Equal("fingerprint", state.QueueFingerprint);
     }
 
     [Fact]

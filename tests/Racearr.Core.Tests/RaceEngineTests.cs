@@ -387,6 +387,163 @@ public class RaceEngineTests
     }
 
     [Fact]
+    public async Task BelowTargetRace_DefaultBudgetSurvivesRestartAndResetsAfterQueueDeparture()
+    {
+        var options = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0,
+            RaceCullAfterSeconds = 0, RaceMonitorSeconds = 0,
+            RaceCooldownSeconds = 0,
+        };
+        var arr = new FakeArr
+        {
+            Releases = { new Release { Protocol = "torrent", Seeders = 50, Resolution = 1080, InfoHash = "alt", Guid = "g" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 50_000, Progress = 0.2 } } };
+        var metrics = new CountingMetrics();
+        var store = new MemoryStateStore();
+        var engine = NewEngine(options, arr, qbit, metrics, stateStore: store);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 501, DownloadId = "slow" }];
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await engine.TickAsync(CancellationToken.None); // starts a race and increments retry ownership
+            arr.Queue =
+            [
+                new QueueRecord { Id = 1, ItemId = 501, DownloadId = "slow" },
+                new QueueRecord { Id = 2, ItemId = 501, DownloadId = "alt" },
+            ];
+            qbit.Torrents["alt"] = new TorrentInfo { DlSpeed = 10_000, Progress = 0.1 };
+            await engine.TickAsync(CancellationToken.None); // times out below target and culls alt
+            arr.Queue = [new QueueRecord { Id = 1, ItemId = 501, DownloadId = "slow" }];
+            qbit.Torrents.Remove("alt");
+        }
+
+        var restartedMetrics = new CountingMetrics();
+        var restarted = NewEngine(options, arr, qbit, restartedMetrics, stateStore: store);
+        await restarted.PrimeBaselineAsync(CancellationToken.None);
+        await restarted.TickAsync(CancellationToken.None); // attempt budget remains exhausted after restart
+
+        Assert.Equal(3, metrics.RacesStarted);
+        Assert.Equal(3, arr.Grabbed.Count);
+        Assert.Equal(0, restartedMetrics.RacesStarted);
+        Assert.All(arr.DeleteCalls, call => Assert.True(call.RemoveFromClient && call.Blocklist));
+        Assert.Equal(3, store.Items["radarr:501"].RetryCount);
+
+        arr.Queue = [];
+        await restarted.TickAsync(CancellationToken.None);
+        Assert.DoesNotContain("radarr:501", store.Items.Keys);
+
+        arr.Queue = [new QueueRecord { Id = 3, ItemId = 501, DownloadId = "slow" }];
+        await restarted.TickAsync(CancellationToken.None);
+        Assert.Equal(1, restartedMetrics.RacesStarted);
+        Assert.Equal(1, store.Items["radarr:501"].RetryCount);
+    }
+
+    [Fact]
+    public async Task InvalidAttemptBudget_FailsClosedAfterOneRace()
+    {
+        var options = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0,
+            RaceMaxAttemptsPerItem = 0,
+        };
+        var arr = new FakeArr
+        {
+            Releases = { new Release { Protocol = "torrent", Seeders = 50, Resolution = 1080, InfoHash = "alt", Guid = "g" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 50_000, Progress = 0.2 } } };
+        var metrics = new CountingMetrics();
+        var engine = NewEngine(options, arr, qbit, metrics);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 502, DownloadId = "slow" }];
+        await engine.TickAsync(CancellationToken.None);
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(1, metrics.RacesStarted);
+    }
+
+    [Fact]
+    public async Task DryRunObservation_DoesNotConsumeArmedBudgetAcrossRestart()
+    {
+        var dryRunOptions = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = true, SpeedSlaSeconds = 0,
+            RaceCooldownSeconds = 600, RaceMaxAttemptsPerItem = 1,
+        };
+        var arr = new FakeArr
+        {
+            Releases = { new Release { Protocol = "torrent", Seeders = 50, Resolution = 1080, InfoHash = "alt", Guid = "g" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 50_000, Progress = 0.2 } } };
+        var store = new MemoryStateStore();
+        var dryRun = NewEngine(dryRunOptions, arr, qbit, new CountingMetrics(), stateStore: store);
+
+        await dryRun.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 503, DownloadId = "slow" }];
+        await dryRun.TickAsync(CancellationToken.None);
+
+        Assert.Equal(0, store.Items["radarr:503"].RetryCount);
+        Assert.Null(store.Items["radarr:503"].NextRetryUtc);
+
+        arr.Queue =
+        [
+            new QueueRecord { Id = 1, ItemId = 503, DownloadId = "slow" },
+            new QueueRecord { Id = 2, ItemId = 503, DownloadId = "external" },
+        ];
+        qbit.Torrents["external"] = new TorrentInfo { DlSpeed = 25_000, Progress = 0.1 };
+        await dryRun.TickAsync(CancellationToken.None); // fingerprint persistence must not capture observation cooldown
+        Assert.Null(store.Items["radarr:503"].NextRetryUtc);
+
+        var armedOptions = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0,
+            RaceCooldownSeconds = 600, RaceMaxAttemptsPerItem = 1,
+        };
+        var armedMetrics = new CountingMetrics();
+        var armed = NewEngine(armedOptions, arr, qbit, armedMetrics, stateStore: store);
+        await armed.PrimeBaselineAsync(CancellationToken.None);
+        await armed.TickAsync(CancellationToken.None);
+
+        Assert.Equal(1, armedMetrics.RacesStarted);
+        Assert.Equal(1, store.Items["radarr:503"].RetryCount);
+    }
+
+    [Fact]
+    public async Task TargetWinner_ResetsAttemptBudget()
+    {
+        var options = new RacearrOptions
+        {
+            RadarrApiKey = "x", DryRun = false, SpeedSlaSeconds = 0,
+            RaceCullAfterSeconds = 0, RaceMonitorSeconds = 0,
+            RaceCooldownSeconds = 0, RaceMaxAttemptsPerItem = 1,
+        };
+        var arr = new FakeArr
+        {
+            Releases = { new Release { Protocol = "torrent", Seeders = 50, Resolution = 1080, InfoHash = "alt", Guid = "g" } },
+        };
+        var qbit = new FakeQbit { Torrents = { ["slow"] = new TorrentInfo { DlSpeed = 50_000, Progress = 0.2 } } };
+        var store = new MemoryStateStore();
+        var engine = NewEngine(options, arr, qbit, new CountingMetrics(), stateStore: store);
+
+        await engine.PrimeBaselineAsync(CancellationToken.None);
+        arr.Queue = [new QueueRecord { Id = 1, ItemId = 504, DownloadId = "slow" }];
+        await engine.TickAsync(CancellationToken.None);
+        arr.Queue =
+        [
+            new QueueRecord { Id = 1, ItemId = 504, DownloadId = "slow" },
+            new QueueRecord { Id = 2, ItemId = 504, DownloadId = "alt" },
+        ];
+        qbit.Torrents["alt"] = new TorrentInfo { DlSpeed = 3 * RaceDecisions.MB, Progress = 0.1 };
+        await engine.TickAsync(CancellationToken.None);
+
+        Assert.Equal(0, store.Items["radarr:504"].RetryCount);
+    }
+
+    [Fact]
     public async Task DoneBranch_FinishedDownload_CullsUnfinishedLoser()
     {
         var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false };

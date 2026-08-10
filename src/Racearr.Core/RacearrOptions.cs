@@ -36,6 +36,7 @@ public sealed class RacearrOptions
     public int RaceMonitorSeconds { get; init; } = 180;
     public int RaceCooldownSeconds { get; init; } = 600;
     public int RaceRetryMaxSeconds { get; init; } = 21600;
+    public int RaceMaxAttemptsPerItem { get; init; } = 3;
     public int MaxConcurrentPerItem { get; init; } = 4;
     public int MaxActiveRaces { get; init; } = 6;
     public int RaceMinSeeders { get; init; } = 3;
@@ -170,6 +171,14 @@ public sealed class RacearrOptions
         int Int(string key, int dflt)
             => int.TryParse(get(key), out var v) ? v : dflt;
 
+        int PositiveInt(string key, int dflt)
+        {
+            var raw = get(key);
+            if (raw is null) return dflt;
+            if (string.IsNullOrWhiteSpace(raw)) return 1;
+            return int.TryParse(raw, out var value) && value > 0 ? value : 1;
+        }
+
         double Dbl(string key, double dflt)
             => double.TryParse(get(key), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : dflt;
@@ -214,6 +223,7 @@ public sealed class RacearrOptions
             RaceMonitorSeconds = Int("RACE_MONITOR_SECONDS", 180),
             RaceCooldownSeconds = Int("RACE_COOLDOWN_SECONDS", 600),
             RaceRetryMaxSeconds = Int("RACE_RETRY_MAX_SECONDS", 21600),
+            RaceMaxAttemptsPerItem = PositiveInt("RACE_MAX_ATTEMPTS_PER_ITEM", 3),
             MaxConcurrentPerItem = Int("MAX_CONCURRENT_PER_ITEM", 4),
             MaxActiveRaces = Int("MAX_ACTIVE_RACES", 6),
             RaceMinSeeders = Int("RACE_MIN_SEEDERS", 3),
@@ -294,6 +304,7 @@ public sealed class RacearrOptions
             ["RACE_MONITOR_SECONDS"] = RaceMonitorSeconds.ToString(inv),
             ["RACE_COOLDOWN_SECONDS"] = RaceCooldownSeconds.ToString(inv),
             ["RACE_RETRY_MAX_SECONDS"] = RaceRetryMaxSeconds.ToString(inv),
+            ["RACE_MAX_ATTEMPTS_PER_ITEM"] = RaceMaxAttemptsPerItem.ToString(inv),
             ["MAX_CONCURRENT_PER_ITEM"] = MaxConcurrentPerItem.ToString(inv),
             ["MAX_ACTIVE_RACES"] = MaxActiveRaces.ToString(inv),
             ["RACE_MIN_SEEDERS"] = RaceMinSeeders.ToString(inv),
