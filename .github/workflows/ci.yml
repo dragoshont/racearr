@@ -7,8 +7,21 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-  pull_request:
-    branches: [main]
+  # No `pull_request` trigger, deliberately. Actions minutes are the only paid
+  # resource in this repo and a PR that is never merged must not spend them:
+  # build-test (dotnet test, 225 tests) plus a multi-arch image build is ~6 min
+  # of runner per push, and a branch under review gets pushed repeatedly. The
+  # gate is local `dotnet test` before merge — it is the same command CI runs,
+  # takes 1s for the unit suite, and nothing here needs a Linux-only build to
+  # validate. CI then runs exactly twice for anything that ships: once on main,
+  # once on the tag that publishes the image.
+  #
+  # This also closes a supply-chain hole: with a PR trigger, any contributor who
+  # can open a PR can execute arbitrary code on a runner that has the ghcr
+  # login action installed. Removing the trigger removes that path entirely.
+  # Enforced at repo level too: Actions is limited to the `actions/*` and
+  # `docker/*` allowlist, so a workflow edit PR cannot smuggle in a third-party
+  # action even if a trigger were re-added.
 
 jobs:
   build-test:
