@@ -37,6 +37,18 @@ public sealed class RacearrMetrics : IEngineMetrics
     public Histogram TimeToTargetSeconds { get; }
     public Histogram RaceWinnerMbps { get; }
 
+    // ---- Plex watchlist intake ----
+    // Published even when intake is disabled (at 0), so "intake off", "intake broken" and "intake
+    // idle" are three distinguishable pictures instead of one empty graph.
+    public Gauge WatchlistEnabled { get; }
+    public Gauge WatchlistProbeSuccess { get; }        // {feed}   1|0, per feed
+    public Gauge WatchlistHttpStatus { get; }          // {feed}   last status; 0 = transport failure
+    public Gauge WatchlistItems { get; }               // {feed}   -1 when unreadable, else count
+    public Gauge WatchlistLastAddAge { get; }          // {arr}
+    public Gauge WatchlistParked { get; }
+    public Gauge WatchlistLoops { get; }
+    public Counter WatchlistAdds { get; }              // {arr,outcome}
+
     public RacearrMetrics(IMetricFactory factory)
     {
         Up = factory.CreateGauge("racearr_up", "1 while the racearr process is running.");
@@ -69,6 +81,28 @@ public sealed class RacearrMetrics : IEngineMetrics
             "Time from first-seen to reaching the target speed.", new HistogramConfiguration { Buckets = TimeToTargetBuckets });
         RaceWinnerMbps = factory.CreateHistogram("racearr_race_winner_mbps",
             "Winning candidate speed in MB/s.", new HistogramConfiguration { Buckets = MbpsBuckets });
+
+        WatchlistEnabled = factory.CreateGauge("racearr_watchlist_enabled",
+            "1 when Plex watchlist intake is configured and running.");
+        WatchlistProbeSuccess = factory.CreateGauge("racearr_watchlist_feed_probe_success",
+            "1 when the last fetch of this Plex feed returned a readable watchlist.",
+            new GaugeConfiguration { LabelNames = ["feed"] });
+        WatchlistHttpStatus = factory.CreateGauge("racearr_watchlist_feed_http_status",
+            "HTTP status of the last fetch of this Plex feed (0 = transport failure).",
+            new GaugeConfiguration { LabelNames = ["feed"] });
+        WatchlistItems = factory.CreateGauge("racearr_watchlist_feed_items",
+            "Items in this Plex feed at the last poll; -1 when the feed was unreadable.",
+            new GaugeConfiguration { LabelNames = ["feed"] });
+        WatchlistLastAddAge = factory.CreateGauge("racearr_watchlist_last_add_age_seconds",
+            "Seconds since watchlist intake last added anything to this *arr.",
+            new GaugeConfiguration { LabelNames = ["arr"] });
+        WatchlistParked = factory.CreateGauge("racearr_watchlist_parked_items",
+            "Feed items parked after repeated rejections (no longer retried until restart).");
+        WatchlistLoops = factory.CreateGauge("racearr_watchlist_loops_total",
+            "Watchlist intake polls since start.");
+        WatchlistAdds = factory.CreateCounter("racearr_watchlist_adds_total",
+            "Watchlist intake decisions by target and outcome.",
+            new CounterConfiguration { LabelNames = ["arr", "outcome"] });
     }
 
     /// <summary>Publish the known label sets at 0 so dashboards read clean zeros before the first event.</summary>
@@ -94,6 +128,40 @@ public sealed class RacearrMetrics : IEngineMetrics
 
         foreach (var type in new[] { "pickup_sla", "speed_sla", "stalled_dead", "race_no_target", "fake_rejected", "import_failed" })
             Incidents.WithLabels(type).IncTo(0);
+
+        // Intake label sets, published at 0 up front. A series that only appears after the first
+        // success cannot be alerted on in the failure case — and the failure case is the entire
+        // reason the intake metrics exist. Feed labels are positional (feed1, feed2): the feed id
+        // is a read credential and must never become a metric label.
+        for (var i = 0; i < options.WatchlistFeedIds.Count; i++)
+        {
+            var feed = $"feed{i + 1}";
+            WatchlistProbeSuccess.WithLabels(feed).Set(0);
+            WatchlistHttpStatus.WithLabels(feed).Set(0);
+            WatchlistItems.WithLabels(feed).Set(-1);
+        }
+
+        foreach (var instance in ArrInstance.FromOptions(options))
+        {
+            WatchlistLastAddAge.WithLabels(instance.Name).Set(0);
+            foreach (var outcome in new[] { "added", "already_present", "dry_run", "unsupported", "no_identity", "no_instance", "no_target", "lookup_failed", "deferred", "parked" })
+                WatchlistAdds.WithLabels(instance.Name, outcome).IncTo(0);
+        }
+
+        WatchlistEnabled.Set(options.HasWatchlist ? 1 : 0);
+        WatchlistParked.Set(0);
+        WatchlistLoops.Set(0);
+    }
+
+    /// <summary>Refresh intake gauges from live state; wired as a second before-collect callback.</summary>
+    public void RefreshWatchlist(WatchlistIntakeState state, RacearrOptions options)
+    {
+        var now = DateTimeOffset.UtcNow;
+        WatchlistEnabled.Set(options.HasWatchlist ? 1 : 0);
+        WatchlistParked.Set(state.Parked);
+        WatchlistLoops.Set(state.Loops);
+        foreach (var instance in ArrInstance.FromOptions(options))
+            WatchlistLastAddAge.WithLabels(instance.Name).Set(state.LastAddAgeSeconds(instance.Name, now));
     }
 
     /// <summary>Refresh gauges from live engine state; wired as a before-collect callback.</summary>

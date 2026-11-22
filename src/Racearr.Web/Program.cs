@@ -119,6 +119,39 @@ builder.Services.AddHostedService<RaceEngineHostedService>();
 builder.Services.AddSingleton<InsightsService>();
 builder.Services.AddHostedService<InsightsRefreshService>();
 
+// ---- Plex watchlist intake (replaces the removed watchlistarr workload) ----
+// Two typed clients, because the feed call and the arr calls want different timeouts and
+// different log text, and because the feed is the only internet-facing call this process makes.
+//
+// AllowAutoRedirect is deliberately left at its default (true). Plex answers
+// rss.plex.tv/<feed-id> with a 302 to a presigned S3 URL whose SigV4 signature covers the Host
+// header (X-Amz-SignedHeaders=host); HttpClient rebuilds Host per connection, which is correct.
+// Following that redirect by hand — or pinning a Host header, as the previous integration's HTTP
+// stack effectively did — produces "403 SignatureDoesNotMatch" from S3 on every poll while the
+// error message names rss.plex.tv. See PlexFeedClient's remarks and the homelab runbook
+// vault/runbooks/media-front-door.md.
+builder.Services.AddHttpClient<IPlexFeedSource, PlexFeedClient>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(25);
+    var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev";
+    c.DefaultRequestHeaders.UserAgent.ParseAdd($"racearr/{version}");
+    c.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddHttpClient<IWatchlistArrGateway, WatchlistArrClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddSingleton<WatchlistIntakeState>();
+builder.Services.AddHostedService<WatchlistIntakeService>();
+
+// SECURITY: silence HttpClientFactory's per-request logging for the Plex feed client only.
+// At Information the framework writes "Starting HTTP request GET {RequestUri}", and the path of a
+// Plex watchlist URI is the household's read credential — a feed id alone returns the entire
+// watchlist with no token and no cookie. Every poll would otherwise append that credential to the
+// container log, which is precisely how the integration this replaced leaked its Plex token.
+// Enforced in code rather than by a deployment env var so a missing env var can never reopen it;
+// PlexFeedSecurity's test keeps the category name honest if the typed client is ever renamed.
+builder.Logging.AddFilter(PlexFeedSecurity.HttpClientLogCategory, LogLevel.Warning);
+builder.Logging.AddFilter(PlexFeedSecurity.HttpClientLogCategory + ".LogicalHandler", LogLevel.Warning);
+builder.Logging.AddFilter(PlexFeedSecurity.HttpClientLogCategory + ".ClientHandler", LogLevel.Warning);
+
 // Blazor Server UI (dashboard / settings / history) + its read-side history query.
 builder.Services.AddSingleton<IEventHistory, DbEventHistory>();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -147,6 +180,12 @@ var state = app.Services.GetRequiredService<RaceEngineState>();
 state.SeedCounters(app.Services.GetRequiredService<IEngineCounterStore>().Load());
 metrics.PreInitialize(options);
 Metrics.DefaultRegistry.AddBeforeCollectCallback(() => metrics.RefreshGauges(state));
+
+// Intake gauges are derived from wall-clock age (seconds since last add), so they are recomputed
+// at scrape time rather than pushed on a timer: a push cadence would make the gauge drift between
+// ticks, and an alert on "no add in 48h" wants the true age at the moment it is evaluated.
+var watchlistState = app.Services.GetRequiredService<WatchlistIntakeState>();
+Metrics.DefaultRegistry.AddBeforeCollectCallback(() => metrics.RefreshWatchlist(watchlistState, options));
 
 app.UseStaticFiles();
 app.UseAuthentication();
