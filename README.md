@@ -259,6 +259,48 @@ All configuration is via environment variables. At least one of Radarr/Sonarr mu
 | `AUTH_PROXY` | `authentik` | Forward-auth scheme for the signed-in-user **display** only: `authentik`/`authelia`/`oauth2-proxy`/`tinyauth`/`traefik`/`generic`/`custom`/`none` (see [Access & authentication](#access--authentication)) |
 | `LOG_LEVEL` | `INFO` | `INFO` / `DEBUG` |
 
+### Plex watchlist intake (optional)
+
+Turns racearr into the Plex → \*arr front door: it polls your Plex watchlist RSS feed,
+routes each title by its `category` (movie → Radarr, show → Sonarr) and adds what is
+missing. Off unless you set feed ids, so an existing deployment is untouched.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WATCHLIST_FEED_IDS` | *(empty — disabled)* | Comma-separated Plex RSS feed ids (the path segment of `https://rss.plex.tv/<id>`). **Treat these as credentials** — see below. |
+| `WATCHLIST_ENABLED` | `true` | Kill switch. Off reports `racearr_watchlist_enabled 0` rather than going silent. |
+| `WATCHLIST_INTERVAL_SECONDS` | `120` | Poll interval. Cannot be configured below 1. |
+| `WATCHLIST_PROFILE` | `UHD/HD` | Quality profile **name**, resolved on the target \*arr. If no profile has that name, adds are refused and counted — never downgraded to an arbitrary profile. |
+| `WATCHLIST_MOVIES_ROOT` / `WATCHLIST_SHOWS_ROOT` | *(auto)* | Root folder. Unset → the first accessible `/rootfolder` the \*arr reports. Set but not offered by the API → adds refused (a mount problem, not a guess). |
+| `WATCHLIST_SERIES_MONITOR` | `all` | Sonarr monitor policy for a new series (`all`, `future`, `existing`, `recent`, `monitored`, `none`). |
+| `WATCHLIST_SEARCH_ON_ADD` | `true` | Also search: `MoviesSearch` on Radarr, existing-episode search on Sonarr. |
+| `WATCHLIST_TAG` | `plex-watchlist` | Tag created on the \*arr and applied to every intake add, so "what added this?" is answerable from the UI. |
+| `WATCHLIST_BACKOFF_MINUTES` / `WATCHLIST_MAX_ATTEMPTS` | `5` / `5` | A rejected title backs off exponentially, then parks (see outcomes). |
+
+**No Plex token is needed and none is sent.** A feed id is itself a read credential:
+fetched with no token, no cookie and no session it returns the whole household watchlist.
+So this is the weakest credential that still works — read-only, revocable, and regenerated
+by Plex UI → Watchlist → ⋮ → *Copy RSS feed URL*. Pass it as a Kubernetes Secret /
+compose secret, and **never paste it into an issue or a log.**
+
+Routing is by `category`, never by title. In a real feed, "Blade Runner 2099" is a
+`show`; a title matcher would file it in Radarr beside 2049. Matching into the \*arr is by
+external id (`tmdbId` for Radarr, `tvdbId` for Sonarr) — there is no fuzzy search anywhere
+in this path, and no TMDb key required.
+
+Metrics: `racearr_watchlist_feed_probe_success{feed}`,
+`racearr_watchlist_feed_http_status{feed}`, `racearr_watchlist_feed_items{feed}`
+(**-1 = unreadable**, deliberately not 0, so "broken" cannot read as "idle"),
+`racearr_watchlist_last_add_age_seconds{arr}`, `racearr_watchlist_parked_items` and
+`racearr_watchlist_adds_total{arr,outcome}` where outcome is
+`added · already_present · dry_run · unsupported · no_identity · no_instance · no_target ·
+lookup_failed · deferred · parked`. Alert on `probe_success == 0`, on
+`last_add_age_seconds` exceeding your tolerance while `feed_items > 0`, and on
+`parked_items > 0`. `deferred` is a normal retry window — page on `parked`, not on it.
+
+Titles are matched by id and looked up before every add, so the loop is idempotent and
+stateless: a restart re-reads the feed and adds nothing that already exists.
+
 ### Notifications
 
 racearr posts a short message on every incident (a pickup breach, a race, a dead

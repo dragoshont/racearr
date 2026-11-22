@@ -78,3 +78,44 @@ public interface IConnectionTester
 {
     Task<ConnectionTestResult> TestAsync(Connection connection, CancellationToken ct = default);
 }
+
+/// <summary>Outcome of one feed fetch. A non-OK result is data, not an exception: "empty",
+/// "rejected" and "unreachable" must stay distinguishable all the way to a graph.</summary>
+public sealed record PlexFeedResult(int StatusCode, string? Body, string? Error = null)
+{
+    /// <summary>2xx with a body. Everything else — including 3xx after redirect exhaustion,
+    /// which is what a wedged redirect chain looks like from here — is a failed probe.</summary>
+    public bool Ok => StatusCode is >= 200 and < 300 && Body is not null;
+
+    public static PlexFeedResult Delivered(int status, string body) => new(status, body);
+    public static PlexFeedResult Rejected(int status, string body) => new(status, body);
+    public static PlexFeedResult TransportFailure(int status, string error) => new(status, null, error);
+}
+
+/// <summary>Transport for a Plex watchlist RSS feed. Kept off the arr client so the one
+/// internet-facing call in the process has its own timeout, its own log text and its own tests.</summary>
+public interface IPlexFeedSource
+{
+    Task<PlexFeedResult> FetchAsync(string feedId, CancellationToken ct);
+}
+
+/// <summary>Where an add is allowed to land: a profile that exists by name and a root folder the
+/// *arr can actually see. There is deliberately no implicit default in this record — if either is
+/// missing the caller refuses the add rather than picking one.</summary>
+public sealed record ArrTarget(int QualityProfileId, string RootFolder, int? TagId);
+
+/// <summary>The read/add surface the watchlist intake needs from a *arr. Separate from
+/// <see cref="IArrClient"/> so growing the intake path cannot destabilise the race engine, which
+/// shares neither the endpoints nor the failure semantics.</summary>
+public interface IWatchlistArrGateway
+{
+    /// <summary>Is this title already in the library? Throws when the lookup did not succeed —
+    /// an unknown must never be reported as absent, because absent means "POST an add".</summary>
+    Task<bool> ExistsAsync(ArrInstance inst, WatchlistItem item, CancellationToken ct);
+
+    /// <summary>Resolve (and cache) the profile / root folder / tag for adds, or null when the
+    /// configured target does not exist on this instance.</summary>
+    Task<ArrTarget?> ResolveTargetAsync(ArrInstance inst, CancellationToken ct);
+
+    Task<ArrMutationResult> AddAsync(ArrInstance inst, WatchlistItem item, ArrTarget target, CancellationToken ct);
+}
