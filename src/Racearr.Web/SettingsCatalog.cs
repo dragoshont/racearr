@@ -13,6 +13,7 @@ public static class SettingsCatalog
     [
         new("POLL_SECONDS", "Check interval", "How often racearr looks at the download queues.", "seconds", "Timing", false),
         new("PICKUP_SLA_SECONDS", "Pickup deadline", "A requested title must start downloading within this long, or it raises an incident.", "seconds", "Timing", false),
+        new("FORCE_SEARCH_AFTER_SECONDS", "Force-search after", "How long to wait before forcing a search to bypass Radarr\u2019s internal scheduling delay (faster than the pickup deadline).", "seconds", "Timing", false),
         new("SPEED_SLA_SECONDS", "Slow-download grace", "How long a download may crawl before racing kicks in.", "seconds", "Timing", false),
         new("SPEED_SLA_MBPS", "Too-slow threshold", "Below this speed within the grace window, the title is raced.", "MB/s", "Racing", false),
         new("RACE_TARGET_MBPS", "Good-enough speed", "A racing alternate at or above this speed wins the race.", "MB/s", "Racing", false),

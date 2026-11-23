@@ -606,7 +606,7 @@ public class RaceEngineTests
     [Fact]
     public async Task DryRun_DoesNotForceSearchOrKill()
     {
-        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = true, PickupSlaSeconds = 0 };
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = true, PickupSlaSeconds = 0, ForceSearchAfterSeconds = 0 };
         var arr = new FakeArr();
         var qbit = new FakeQbit
         {
@@ -636,7 +636,7 @@ public class RaceEngineTests
     [Fact]
     public async Task Pickup_Breach_RaisesIncidentOnceThenClassifiesBreached()
     {
-        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0 };
+        var o = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0, ForceSearchAfterSeconds = 0 };
         var arr = new FakeArr();
         var metrics = new CountingMetrics();
         var engine = NewEngine(o, arr, new FakeQbit(), metrics);
@@ -797,7 +797,7 @@ public class RaceEngineTests
         await first.TickAsync(CancellationToken.None);
         Assert.Contains("radarr:1103", store.Items.Keys);
 
-        var secondOptions = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0 };
+        var secondOptions = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0, ForceSearchAfterSeconds = 0 };
         var secondMetrics = new CountingMetrics();
         var secondArr = new FakeArr { Wanted = { new WantedItem(1103, "Requested") } };
         var second = NewEngine(secondOptions, secondArr, new FakeQbit(), secondMetrics, stateStore: store);
@@ -811,7 +811,7 @@ public class RaceEngineTests
     [Fact]
     public async Task BaselineFailure_LeavesInstanceUnprimedAndPerformsNoActions()
     {
-        var options = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0 };
+        var options = new RacearrOptions { RadarrApiKey = "x", DryRun = false, PickupSlaSeconds = 0, ForceSearchAfterSeconds = 0 };
         var arr = new FakeArr
         {
             WantedError = new InvalidDataException("page two failed"),

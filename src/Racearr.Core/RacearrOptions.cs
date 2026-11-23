@@ -29,6 +29,10 @@ public sealed class RacearrOptions
     // ----- SLA contract (see ADR-0001; mirrors the Python defaults exactly) -----
     public int PollSeconds { get; init; } = 12;
     public int PickupSlaSeconds { get; init; } = 180;
+    /// <summary>How long to wait after a title is wanted before forcing a search to bypass
+    /// Radarr's internal post-add scheduling delay (which can be ~3 min for single adds).
+    /// Separate from <see cref="PickupSlaSeconds"/>, which is the alert threshold.</summary>
+    public int ForceSearchAfterSeconds { get; init; } = 30;
     public int SpeedSlaSeconds { get; init; } = 120;
     public double SpeedSlaMbps { get; init; } = 1.0;
     public double RaceTargetMbps { get; init; } = 2.0;
@@ -287,6 +291,7 @@ public sealed class RacearrOptions
 
             PollSeconds = Int("POLL_SECONDS", 12),
             PickupSlaSeconds = Int("PICKUP_SLA_SECONDS", 180),
+            ForceSearchAfterSeconds = Int("FORCE_SEARCH_AFTER_SECONDS", 30),
             SpeedSlaSeconds = Int("SPEED_SLA_SECONDS", 120),
             SpeedSlaMbps = Dbl("SPEED_SLA_MBPS", 1.0),
             RaceTargetMbps = Dbl("RACE_TARGET_MBPS", 2.0),
@@ -385,6 +390,7 @@ public sealed class RacearrOptions
         {
             ["POLL_SECONDS"] = PollSeconds.ToString(inv),
             ["PICKUP_SLA_SECONDS"] = PickupSlaSeconds.ToString(inv),
+            ["FORCE_SEARCH_AFTER_SECONDS"] = ForceSearchAfterSeconds.ToString(inv),
             ["SPEED_SLA_SECONDS"] = SpeedSlaSeconds.ToString(inv),
             ["SPEED_SLA_MBPS"] = SpeedSlaMbps.ToString(inv),
             ["RACE_TARGET_MBPS"] = RaceTargetMbps.ToString(inv),

@@ -485,28 +485,31 @@ public sealed class RaceEngine
                 changed = true;
             }
             if (changed) SaveOwned(p);
-            if (!p.PickupAlerted && (now - p.PickupFirstSeenUtc.Value).TotalSeconds >= _o.PickupSlaSeconds)
+            var elapsed = (now - p.PickupFirstSeenUtc.Value).TotalSeconds;
+
+            // Force search: fire early to bypass Radarr's internal post-add scheduling delay
+            // (which can be ~3 min for single adds). No alert — this is remediation, not failure.
+            if (!p.PickupAlerted && elapsed >= _o.ForceSearchAfterSeconds && !InRetry(p, now))
             {
-                if (p.LastIncidentType != "pickup_sla")
+                if (await ForceSearchAsync(inst, w.Id, ct))
                 {
-                    Incident("pickup_sla",
-                        $"{inst.Name} '{w.Title}' wanted for {(int)(now - p.PickupFirstSeenUtc.Value).TotalSeconds}s with no grab " +
-                        $"(> {_o.PickupSlaSeconds}s) — forcing search", inst.Name, w.Id);
-                    p.LastIncidentType = "pickup_sla";
-                    SaveOwned(p);
+                    p.PickupAlerted = true;
+                    ResetRetry(p);
                 }
-                if (!InRetry(p, now))
+                else
                 {
-                    if (await ForceSearchAsync(inst, w.Id, ct))
-                    {
-                        p.PickupAlerted = true;
-                        ResetRetry(p);
-                    }
-                    else
-                    {
-                        ScheduleRetry(p, now);
-                    }
+                    ScheduleRetry(p, now);
                 }
+            }
+
+            // Alert: only when the full SLA is breached (force search didn't resolve it).
+            if (p.LastIncidentType != "pickup_sla" && elapsed >= _o.PickupSlaSeconds)
+            {
+                Incident("pickup_sla",
+                    $"{inst.Name} '{w.Title}' wanted for {(int)elapsed}s with no grab " +
+                    $"(> {_o.PickupSlaSeconds}s) — forcing search", inst.Name, w.Id);
+                p.LastIncidentType = "pickup_sla";
+                SaveOwned(p);
             }
         }
 

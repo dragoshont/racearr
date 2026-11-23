@@ -13,6 +13,7 @@ public class RacearrOptionsTests
 
         Assert.Equal(12, o.PollSeconds);
         Assert.Equal(180, o.PickupSlaSeconds);
+        Assert.Equal(30, o.ForceSearchAfterSeconds);
         Assert.Equal(120, o.SpeedSlaSeconds);
         Assert.Equal(1.0, o.SpeedSlaMbps);
         Assert.Equal(2.0, o.RaceTargetMbps);
